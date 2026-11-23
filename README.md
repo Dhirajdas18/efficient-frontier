@@ -149,7 +149,7 @@ drifted. Risk parity and minimum variance use Ledoit-Wolf covariance.
 - **On ₹10 lakh, DP charges cost more than STT** for the 50-stock schemes: about 0.54% a year, because
   every stock trimmed in a month pays ₹15.93. Minimum variance holds about 15 stocks and paid 0.21%.
 - **Minimum variance isn't free (right):** it fell least in 2020, but by late 2026 it sat furthest below
-  its previous peak as higher-volatility stocks led.
+  its previous peak of all the schemes.
 
 ## Quick start
 
