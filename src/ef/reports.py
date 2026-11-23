@@ -529,5 +529,154 @@ def report_contest(out_dir: Path) -> dict:
     }
 
 
+SECTORS = Path("docs/data/sectors.csv")  # NSE industry per stock that ever entered the universe
+STOCK_CAP, SECTOR_CAP = 0.15, 0.30  # the reference model's caps (MODEL_SPEC §7.3)
+PENALTIES = (0.0005, 0.002, 0.005)  # turnover penalty, annual-variance units per unit traded
+CONSTRAINTS = Path("docs/data/constraints_monthly.csv")  # monthly net returns, for the site
+
+
+def _sectors(index) -> np.ndarray:
+    sec = pd.read_csv(SECTORS).set_index("symbol")["industry"]
+    return sec.reindex(index).fillna("unknown").to_numpy()
+
+
+def _constrained():
+    def mv(capped):
+        def f(mu, cov, w):
+            if not capped:
+                return min_variance(_lw(w))
+            return min_variance(_lw(w), (0.0, STOCK_CAP), _sectors(mu.index), SECTOR_CAP)
+        return f
+
+    def ms(capped):
+        def f(mu, cov, w):
+            if not capped:
+                return max_sharpe(mu.to_numpy(), cov.to_numpy(), RF)
+            return max_sharpe(mu.to_numpy(), cov.to_numpy(), RF, (0.0, STOCK_CAP),
+                              _sectors(mu.index), SECTOR_CAP)
+        return f
+
+    def penalised(lam):
+        from ef.frontier import min_variance_penalised
+
+        def f(mu, cov, w, prev):
+            return min_variance_penalised(_lw(w), prev.to_numpy(), lam, (0.0, STOCK_CAP),
+                                          _sectors(mu.index), SECTOR_CAP)
+        f.needs_prev = True
+        return f
+
+    out = {"max Sharpe": ms(False), "max Sharpe, capped": ms(True),
+           "min variance": mv(False), "min variance, capped": mv(True)}
+    out |= {f"min variance, capped, penalty {lam:g}": penalised(lam) for lam in PENALTIES}
+    return out | {"inverse vol (1 year)": _inverse_vol(TRADING_DAYS)}
+
+
+def report_constraints(out_dir: Path) -> dict:
+    """Stock and sector caps and a turnover penalty, after costs on ₹10 lakh."""
+    from ef.costs import trade_cost
+    from ef.universe import load_fno, load_lake, members_at
+    from ef.walkforward import walk_forward
+
+    px, turnover = load_lake()
+    fno = load_fno()
+    members = lambda day: members_at(turnover, day, 50, eligible=fno)  # noqa: E731
+    strategies = _constrained()
+    net = walk_forward(px, members, strategies, WINDOW,
+                       cost=lambda b, s_, n: trade_cost(b, s_, n, CAPITAL))
+    gross = walk_forward(px, members, strategies, WINDOW)
+    rets = net["returns"]
+    dd = lambda r: float(((1 + r).cumprod() / (1 + r).cumprod().cummax() - 1).min())  # noqa: E731
+
+    def biggest_sector(w):
+        return float(w.groupby(_sectors(w.index)).sum().max())
+
+    table = {}
+    for k in strategies:
+        st = stats(rets[k])
+        ws = net["weights"][k].values()
+        table[k] = {**st, "dd": dd(rets[k]), "turnover": float(net["turnover"][k].median()),
+                    "cost": stats(gross["returns"][k])["cagr"] - st["cagr"],
+                    "max stock": float(np.median([w.max() for w in ws])),
+                    "max sector": float(np.median([biggest_sector(w) for w in ws]))}
+    monthly = rets.resample("ME").apply(lambda x: (1 + x).prod() - 1)
+    keep = ["max Sharpe", "max Sharpe, capped", "min variance, capped",
+            f"min variance, capped, penalty {PENALTIES[-1]:g}"]
+    monthly[keep].rename_axis("date").to_csv(CONSTRAINTS, float_format="%.6f")
+    diff = monthly["max Sharpe, capped"] - monthly["max Sharpe"]
+    t_ms = float(diff.mean() / diff.std() * np.sqrt(len(diff)))
+
+    pairs = [("max Sharpe", "max Sharpe, capped"), ("min variance", "min variance, capped")]
+    fig, axes = plt.subplots(1, 2, figsize=(9, 4.6))
+    for ax, (key, label) in zip(axes, (("vol", "volatility, %"), ("dd", "worst fall, %")),
+                                strict=True):
+        xs = np.arange(len(pairs))
+        a = [abs(table[p[0]][key]) * 100 for p in pairs]
+        b = [abs(table[p[1]][key]) * 100 for p in pairs]
+        ax.bar(xs - 0.2, a, 0.38, color=plots.MUTED, label="uncapped")
+        ax.bar(xs + 0.2, b, 0.38, color=plots.SERIES[0], label="capped (15% stock, 30% sector)")
+        for i in range(len(pairs)):
+            ax.text(i - 0.2, a[i] + 0.4, f"{a[i]:.0f}", ha="center", fontsize=9)
+            ax.text(i + 0.2, b[i] + 0.4, f"{b[i]:.0f}", ha="center", fontsize=9)
+        ax.set_xticks(xs, ["maximum Sharpe", "minimum variance"])
+        ax.set_title(label, fontsize=10, fontweight="normal", color=plots.TEXT_2)
+        ax.grid(axis="x", visible=False)
+    axes[0].legend(loc="upper right", fontsize=8)
+    fig.suptitle("Caps tamed maximum Sharpe; minimum variance barely needed them", x=0.06,
+                 ha="left", fontsize=13, fontweight="semibold", color=plots.TEXT)
+    plots.save(fig, out_dir, "constraints_caps")
+
+    keys = ["min variance, capped"] + [f"min variance, capped, penalty {lam:g}"
+                                       for lam in PENALTIES]
+    labels = ["no penalty"] + [f"penalty {lam:g}" for lam in PENALTIES]
+    fig, ax = plt.subplots(figsize=(9, 4.6))
+    xs = np.arange(len(keys))
+    turn = [table[k]["turnover"] * 100 for k in keys]
+    ax.bar(xs, turn, 0.55, color=plots.SERIES[0])
+    for i, k in enumerate(keys):
+        ax.text(i, turn[i] + 0.15, f"cost {table[k]['cost']:.2%}/yr\nvolatility "
+                f"{table[k]['vol']:.1%}", ha="center", va="bottom", fontsize=8,
+                color=plots.TEXT_2)
+    ax.set_xticks(xs, labels)
+    ax.set_ylim(0, max(turn) * 1.45)
+    ax.set_ylabel("turnover a month, % (median)")
+    ax.grid(axis="x", visible=False)
+    ax.set_title("A turnover penalty cut trading by three quarters at the same risk")
+    plots.save(fig, out_dir, "constraints_penalty")
+
+    avg = {}
+    for k in ("inverse vol (1 year)", "min variance", "max Sharpe"):
+        frames = [w.groupby(_sectors(w.index)).sum() for w in net["weights"][k].values()]
+        avg[k] = pd.concat(frames, axis=1).fillna(0).mean(axis=1)
+    avg = pd.DataFrame(avg).fillna(0)
+    top = avg.max(axis=1).nlargest(7).index
+    avg = pd.concat([avg.loc[top], avg.drop(top).sum().to_frame("other").T])
+    fig, ax = plt.subplots(figsize=(9, 4.6))
+    left = np.zeros(avg.shape[1])
+    y = np.arange(avg.shape[1])[::-1]
+    palette = [*plots.SERIES[:7], plots.MUTED]
+    for color, (sector, row) in zip(palette, avg.iterrows(), strict=True):
+        ax.barh(y, row.to_numpy() * 100, 0.55, left=left, color=color, label=sector,
+                edgecolor=plots.SURFACE, lw=1)
+        left += row.to_numpy() * 100
+    ax.set_yticks(y, avg.columns)
+    ax.set_xlim(0, 100)
+    ax.set_xlabel("average weight, % (uncapped)")
+    ax.grid(axis="y", visible=False)
+    ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.18), ncol=4, fontsize=8, frameon=False)
+    ax.set_title("Each optimiser leans on different sectors")
+    plots.save(fig, out_dir, "constraints_sectors")
+
+    return {
+        "net (cagr, vol, worst fall, turnover, cost/yr, median max stock, median max sector)": {
+            k: (f"{t['cagr']:.1%}", f"{t['vol']:.1%}", f"{t['dd']:.0%}", f"{t['turnover']:.1%}",
+                f"{t['cost']:.2%}", f"{t['max stock']:.0%}", f"{t['max sector']:.0%}")
+            for k, t in table.items()},
+        "max Sharpe capped - uncapped, monthly t": round(t_ms, 2),
+        "average sector weights": {k: {s: f"{v:.0%}" for s, v in avg[k].items() if v >= 0.05}
+                                   for k in avg.columns},
+    }
+
+
 REPORTS = {"frontier": report_frontier, "estimation": report_estimation,
-           "covariance": report_covariance, "contest": report_contest}
+           "covariance": report_covariance, "contest": report_contest,
+           "constraints": report_constraints}

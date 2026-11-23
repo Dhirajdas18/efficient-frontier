@@ -123,6 +123,14 @@ def contest_figure(_r) -> go.Figure:
                                     plots.TEXT])
 
 
+def constraints_figure(_r) -> go.Figure:
+    """Growth of ₹1 after costs, capped vs uncapped (docs/data/constraints_monthly.csv)."""
+    from ef.reports import CONSTRAINTS
+
+    return _growth_figure(CONSTRAINTS, [plots.MUTED, plots.SERIES[1], plots.SERIES[2],
+                                        plots.SERIES[0]])
+
+
 def shrinkage_figure(_r) -> go.Figure:
     """Ledoit-Wolf shrinkage intensity at each monthly rebalance (docs/data)."""
     from ef.reports import SHRINKAGE
@@ -165,6 +173,12 @@ SECTIONS = [
      "each other and of NIFTY; risk did not: minimum variance had the lowest volatility in every "
      "year.",
      contest_figure),
+    ("Constraints",
+     "The reference model's caps (15% per stock, 30% per sector) and a penalty on trading. Capping cut "
+     "maximum Sharpe's volatility from 24% to 20%; minimum variance barely needed the caps. A "
+     "turnover penalty cut minimum variance's trading by three quarters at the same risk, saving "
+     "0.45% a year in costs.",
+     constraints_figure),
 ]
 
 

@@ -2,9 +2,11 @@
 
 On the first trading day of each month, a strategy turns annualised estimates (mean returns `mu`
 and covariance `cov`) and the daily returns behind them, all from the previous `lookback` trading
-days, into weights. The portfolio is
-held buy-and-hold until the next rebalance, so weights drift with prices. A stock that stops
-trading stays at its last price (its value sits idle). Before costs; turnover is recorded.
+days, into weights. A strategy with `needs_prev = True` also gets last month's weights after
+they drifted with prices (zero for stocks not held; stocks that left the universe are sold).
+The portfolio is held buy-and-hold until the next rebalance, so weights drift with prices. A stock
+that stops trading stays at its last price (its value sits idle). Costs are optional (`cost`);
+turnover is recorded.
 """
 
 from collections.abc import Callable
@@ -69,8 +71,12 @@ def walk_forward(prices: pd.DataFrame, members: Callable[[pd.Timestamp], list[st
         period = r.iloc[i:end]
         row = {"date": day, "n": len(names)}
         for name, strategy in strategies.items():
-            w = pd.Series(np.asarray(strategy(mu, cov, window[names]), dtype=float),
-                          index=names)
+            if getattr(strategy, "needs_prev", False):  # e.g. a turnover penalty
+                prev = held[name].reindex(names, fill_value=0.0)
+                raw = strategy(mu, cov, window[names], prev)
+            else:
+                raw = strategy(mu, cov, window[names])
+            w = pd.Series(np.asarray(raw, dtype=float), index=names)
             weights[name][day] = w
             prev = held[name]
             diff = w.reindex(w.index.union(prev.index), fill_value=0.0) - prev.reindex(

@@ -16,7 +16,7 @@ rebuilt weekly by GitHub Actions. Hover the frontier to see what each portfolio 
 - [x] Estimation error: 130 monthly out-of-sample rebalances on a point-in-time universe; resampling
 - [x] Covariance estimation: sample, Ledoit-Wolf shrinkage (constant correlation), EWMA
 - [x] Walk-forward contest after Indian delivery costs: equal weight, inverse volatility (20-day, 1-year), risk parity, minimum variance, maximum Sharpe
-- [ ] Constraints: stock and sector caps, turnover penalty
+- [x] Constraints: stock and sector caps (the reference model's 15% / 30%), turnover penalty
 - [ ] Black-Litterman: market prior plus views
 - [ ] Asset classes for an Indian investor: equity, gold, debt, US equity
 
@@ -151,13 +151,38 @@ drifted. Risk parity and minimum variance use Ledoit-Wolf covariance.
 - **Minimum variance isn't free (right):** it fell least in 2020, but by late 2026 it sat furthest below
   its previous peak of all the schemes.
 
+### 5. Caps tamed the concentrated optimiser; a turnover penalty cut minimum variance's trading by three quarters
+
+<a href="docs/img/constraints_caps.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/constraints_caps.png"><img src="docs/img/constraints_caps.gif" alt="Volatility and worst fall of maximum Sharpe and minimum variance, with and without caps" width="720"></picture></a>
+
+The same walk-forward and costs as section 4, now with the reference model's caps (no stock above 15%, no NSE
+industry above 30%; industries from NSE's index lists, with the 11 delisted or merged stocks assigned by
+hand, `docs/data/sectors.csv`) and, for minimum variance, a penalty on trading: the optimiser minimises
+variance plus λ times the turnover from last month's drifted weights.
+
+- **Caps tamed maximum Sharpe:** volatility fell from 23.8% to 20.1% and the worst fall from −45% to −36%.
+  Its return after costs rose from 12.0% to 13.6%, but that difference is noise (monthly t = 0.18).
+- **Minimum variance barely needed them:** its largest stock was 17% and largest industry 27% (median)
+  even uncapped, so capping changed volatility by 0.1 point.
+
+<table><tr>
+<td><a href="docs/img/constraints_penalty.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/constraints_penalty.png"><img src="docs/img/constraints_penalty.gif" alt="Monthly turnover, yearly cost and volatility of capped minimum variance at four turnover penalties"></picture></a></td>
+<td><a href="docs/img/constraints_sectors.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/constraints_sectors.png"><img src="docs/img/constraints_sectors.gif" alt="Average industry weights of inverse volatility, minimum variance and maximum Sharpe"></picture></a></td>
+</tr></table>
+
+- **A turnover penalty paid for itself (left):** at λ = 0.005, median monthly turnover fell from 8.8% to
+  2.2% and costs from 0.67% to 0.22% a year, with volatility at 14.0% against 13.9%. All four settings are
+  shown; none was picked on the results.
+- **Each scheme leans on different industries (right):** minimum variance held 24% in consumer staples on
+  average (largest industry in 75 of 130 months), inverse volatility 27% in financials.
+
 ## Quick start
 
 ```bash
 uv sync
 uv run python scripts/fetch_data.py         # Yahoo Finance -> data/prices.parquet
 uv run ef report frontier                   # charts -> out/
-EF_LAKE_DIR=/path/to/lake uv run ef report estimation   # also: covariance, contest; needs a local NSE bhavcopy lake
+EF_LAKE_DIR=/path/to/lake uv run ef report estimation   # also: covariance, contest, constraints; needs a local NSE bhavcopy lake
 uv run python scripts/build_site.py         # dashboard -> site/index.html
 uv run pytest
 ```
@@ -166,7 +191,8 @@ uv run pytest
 
 - `src/ef/frontier.py`: portfolio return and risk, minimum variance, maximum Sharpe and the frontier
   (scipy SLSQP, long-only, optional weight caps); maximum Sharpe as the standard convex problem;
-  Michaud resampling; risk parity (Spinu's convex form).
+  Michaud resampling; risk parity (Spinu's convex form); stock and sector caps; minimum variance
+  with a turnover penalty.
 - `src/ef/data.py`: Yahoo prices for today's NIFTY 50 (`docs/data/nifty50.csv`, a snapshot of NSE's
   list; `scripts/fetch_constituents.py` refreshes it). Returns on days Yahoo failed to adjust for a
   corporate action are set to zero (`docs/data/yahoo_fixes.csv`, with sources).

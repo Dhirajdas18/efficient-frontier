@@ -73,3 +73,17 @@ def test_costs_are_charged_on_turnover_from_drifted_weights():
     later = paid["turnover"]["ew"].loc[days[1]]
     assert 0 < later < 0.2  # only the drift is traded back, not the whole book
     assert paid["returns"]["ew"].sum() < free["returns"]["ew"].sum()
+
+
+def test_strategies_can_ask_for_last_months_drifted_weights():
+    px = _prices(n_days=300)
+    seen = []
+
+    def sticky(mu, cov, window, prev):
+        seen.append(prev.copy())
+        return np.full(len(mu), 1 / len(mu)) if prev.sum() == 0 else prev / prev.sum()
+
+    sticky.needs_prev = True
+    walk_forward(px, lambda day: list(px.columns), {"sticky": sticky}, lookback=120)
+    assert seen[0].sum() == 0  # nothing held before the first rebalance
+    assert seen[1].sum() == pytest.approx(1) and not np.allclose(seen[1], 1 / 6)  # drifted

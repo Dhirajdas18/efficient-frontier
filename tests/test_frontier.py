@@ -106,3 +106,31 @@ def test_risk_parity_without_correlation_is_inverse_volatility():
     diag = np.diag(VOL**2)
     inv = (1 / VOL) / (1 / VOL).sum()
     np.testing.assert_allclose(risk_parity(diag), inv, atol=1e-6)
+
+
+SECT = np.array(["bank", "bank", "it", "it"])
+
+
+def test_min_variance_respects_stock_and_sector_caps():
+    w = min_variance(COV, bounds=(0.0, 0.4), sectors=SECT, sector_cap=0.6)
+    assert (w <= 0.4 + 1e-7).all()
+    for s in ("bank", "it"):
+        assert w[SECT == s].sum() <= 0.6 + 1e-7
+
+
+def test_max_sharpe_respects_sector_caps():
+    w = max_sharpe(MU, COV, rf=0.065, sectors=SECT, sector_cap=0.55)
+    for s in ("bank", "it"):
+        assert w[SECT == s].sum() <= 0.55 + 1e-6
+    assert w.sum() == pytest.approx(1)
+
+
+def test_turnover_penalty_moves_less_from_the_previous_weights():
+    from ef.frontier import min_variance_penalised
+
+    prev = np.array([0.7, 0.1, 0.1, 0.1])
+    free = min_variance(COV)
+    np.testing.assert_allclose(min_variance_penalised(COV, prev, 0.0), free, atol=1e-5)
+    moves = [np.abs(min_variance_penalised(COV, prev, lam) - prev).sum()
+             for lam in (0.0, 0.002, 0.01, 1.0)]
+    assert moves == sorted(moves, reverse=True) and moves[-1] < 1e-6  # huge penalty: don't trade
