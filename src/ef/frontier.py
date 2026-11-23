@@ -84,3 +84,22 @@ def resampled_max_sharpe(daily, rf: float = 0.0, n_boot: int = 50, seed=None,
         sample = daily[rng.integers(0, len(daily), len(daily))]
         out += max_sharpe(sample.mean(0) * periods, np.cov(sample.T) * periods, rf, bounds)
     return out / n_boot
+
+
+def risk_parity(cov) -> np.ndarray:
+    """Equal risk contribution, long-only: each stock adds the same share of portfolio variance.
+
+    Solved in Spinu's (2013) convex form: minimise y'Σy / 2 - mean(log y) over y > 0, then
+    w = y / sum(y). With no correlation this is inverse volatility.
+    """
+    cov = np.asarray(cov, dtype=float)
+    n = len(cov)
+    scale = float(np.mean(np.diag(cov)))
+    c = cov / scale
+    y0 = 1 / np.sqrt(np.diag(c))
+    res = minimize(lambda y: 0.5 * y @ c @ y - np.log(y).sum() / n, y0,
+                   jac=lambda y: c @ y - 1 / (n * y), method="L-BFGS-B",
+                   bounds=[(1e-10, None)] * n, options={"ftol": 1e-15, "gtol": 1e-12,
+                                                        "maxiter": 5000})
+    y = res.x
+    return y / y.sum()

@@ -92,22 +92,35 @@ def frontier_figure(r: pd.DataFrame) -> go.Figure:
     return _scatter_layout(fig, "volatility, % a year", "return, % a year")
 
 
-def estimation_figure(_r) -> go.Figure:
-    """Growth of ₹1 out of sample, from docs/data/estimation_monthly.csv (month-end returns)."""
-    from ef.reports import ESTIMATION
-
-    m = pd.read_csv(ESTIMATION, index_col="date", parse_dates=["date"])
-    colors = [plots.SERIES[3], plots.SERIES[2], plots.SERIES[1], plots.SERIES[6], plots.TEXT]
+def _growth_figure(path, colors) -> go.Figure:
+    m = pd.read_csv(path, index_col="date", parse_dates=["date"])
     fig = go.Figure()
     x = list(m.index.strftime("%Y-%m-%d"))
     for col, color in zip(m.columns, colors, strict=True):
         fig.add_scatter(x=x, y=(1 + m[col]).cumprod().round(3).tolist(), name=col, mode="lines",
                         line=dict(color=color, width=2 if col != "NIFTY" else 1.4),
                         hovertemplate=f"{col}: ₹%{{y:.2f}}<extra></extra>")
-    fig = _layout(fig, "growth of ₹1, before costs")
+    fig = _layout(fig, "growth of ₹1")
     fig.update_yaxes(type="log", autorange=True)
     fig.update_xaxes(range=None, autorange=True)
     return fig
+
+
+def estimation_figure(_r) -> go.Figure:
+    """Growth of ₹1 out of sample before costs (docs/data/estimation_monthly.csv)."""
+    from ef.reports import ESTIMATION
+
+    return _growth_figure(ESTIMATION, [plots.SERIES[3], plots.SERIES[2], plots.SERIES[1],
+                                       plots.SERIES[6], plots.TEXT])
+
+
+def contest_figure(_r) -> go.Figure:
+    """Growth of ₹1 after Indian delivery costs (docs/data/contest_monthly.csv)."""
+    from ef.reports import CONTEST
+
+    return _growth_figure(CONTEST, [plots.SERIES[3], plots.SERIES[0], plots.SERIES[4],
+                                    plots.SERIES[6], plots.SERIES[2], plots.SERIES[1],
+                                    plots.TEXT])
 
 
 def shrinkage_figure(_r) -> go.Figure:
@@ -146,6 +159,12 @@ SECTIONS = [
      "long-only minimum variance it barely changed the realised risk; with "
      "short positions allowed it cut it.",
      shrinkage_figure),
+    ("After costs",
+     "Six ways of weighting the same 50 stocks each month, after STT, stamp duty, exchange and "
+     "depository charges and slippage on a ₹10 lakh portfolio. Returns ended within two points of "
+     "each other and of NIFTY; risk did not: minimum variance had the lowest volatility in every "
+     "year.",
+     contest_figure),
 ]
 
 

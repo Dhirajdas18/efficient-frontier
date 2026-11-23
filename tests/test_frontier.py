@@ -89,3 +89,20 @@ def test_max_sharpe_survives_awkward_bootstrap_samples():
         mu = np.random.default_rng(seed).normal(0.05, 0.3, n)
         w = max_sharpe(mu, cov, rf=0.065)
         assert w.sum() == pytest.approx(1) and (w >= -1e-8).all()
+
+
+def test_risk_parity_equalises_risk_contributions():
+    from ef.frontier import risk_parity
+
+    w = risk_parity(COV)
+    contrib = w * (COV @ w)
+    np.testing.assert_allclose(contrib / contrib.sum(), np.full(4, 0.25), atol=1e-6)
+    assert w.sum() == pytest.approx(1) and (w > 0).all()
+
+
+def test_risk_parity_without_correlation_is_inverse_volatility():
+    from ef.frontier import risk_parity
+
+    diag = np.diag(VOL**2)
+    inv = (1 / VOL) / (1 / VOL).sum()
+    np.testing.assert_allclose(risk_parity(diag), inv, atol=1e-6)

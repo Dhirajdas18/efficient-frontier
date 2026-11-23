@@ -15,7 +15,7 @@ rebuilt weekly by GitHub Actions. Hover the frontier to see what each portfolio 
 - [x] Mean-variance maths: portfolio risk, minimum variance, maximum Sharpe, long-only frontier (SLSQP), capital market line
 - [x] Estimation error: 130 monthly out-of-sample rebalances on a point-in-time universe; resampling
 - [x] Covariance estimation: sample, Ledoit-Wolf shrinkage (constant correlation), EWMA
-- [ ] Walk-forward contest after costs: equal weight, inverse volatility, minimum variance, risk parity, maximum Sharpe
+- [x] Walk-forward contest after Indian delivery costs: equal weight, inverse volatility (20-day, 1-year), risk parity, minimum variance, maximum Sharpe
 - [ ] Constraints: stock and sector caps, turnover penalty
 - [ ] Black-Litterman: market prior plus views
 - [ ] Asset classes for an Indian investor: equity, gold, debt, US equity
@@ -113,13 +113,51 @@ volatility the portfolio actually had over the following months (Feb 2016–Nov 
 - **How much Ledoit-Wolf shrank (right):** a median 16% toward the target with three years of data and
   27% with one year.
 
+### 4. After costs no weighting scheme beat another on return; minimum variance cut the risk every year
+
+<a href="docs/img/contest_risk_return.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/contest_risk_return.png"><img src="docs/img/contest_risk_return.gif" alt="Return after costs against volatility for six weighting schemes and NIFTY, with worst falls" width="720"></picture></a>
+
+The section 2 walk-forward (130 monthly rebalances, Feb 2016–Nov 2026, the 50 most-traded F&O stocks at
+the time) with six ways of weighting, after Indian equity-delivery costs on a ₹10 lakh portfolio: STT 0.1%
+on buys and sells, stamp duty, exchange and SEBI charges with GST, a ₹15.93 depository (DP) charge per stock
+sold, and 0.05% slippage each way. Trades are measured from the previous month's weights after they
+drifted. Risk parity and minimum variance use Ledoit-Wolf covariance.
+
+| | Return after costs | Volatility | Worst fall | Turnover a month | Cost a year |
+|---|---|---|---|---|---|
+| Equal weight | 10.4% | 19.6% | −55% | 8% | 0.90% |
+| Inverse volatility, 20 days | 11.7% | 17.9% | −46% | 17% | 1.29% |
+| Inverse volatility, 1 year | 11.8% | 17.9% | −45% | 7% | 0.87% |
+| Risk parity | 11.3% | 17.5% | −45% | 7% | 0.89% |
+| Minimum variance | 11.7% | **13.9%** | **−30%** | 9% | 0.66% |
+| Maximum Sharpe | 12.4% | 23.9% | −45% | 19% | 1.09% |
+| NIFTY 50 index (no costs) | 12.1% | 16.1% | −38% | | |
+
+- **Returns were a draw:** every scheme ended within 2 points of the others and of NIFTY, and none differed
+  from 20-day inverse volatility by more than noise (monthly return differences, |t| < 1).
+- **Risk wasn't:** minimum variance had lower volatility than inverse volatility in all 11 calendar years
+  and fell 30% at worst (March 2020) against 45–55% for the other stock portfolios.
+
+<table><tr>
+<td><a href="docs/img/contest_costs.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/contest_costs.png"><img src="docs/img/contest_costs.gif" alt="Yearly cost of each scheme split into STT, slippage and DP charges, with monthly turnover"></picture></a></td>
+<td><a href="docs/img/contest_drawdown.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/contest_drawdown.png"><img src="docs/img/contest_drawdown.gif" alt="Fall from previous peak over time for equal weight, inverse volatility, minimum variance and NIFTY"></picture></a></td>
+</tr></table>
+
+- **Twenty-day volatility is jumpy, so its weights churn (left):** inverse volatility from 20 days of data
+  traded 17% of the portfolio a month and cost 1.29% a year; from one year of data it gave the same return
+  and risk with 7% turnover and 0.87% cost.
+- **On ₹10 lakh, DP charges cost more than STT** for the 50-stock schemes: about 0.54% a year, because
+  every stock trimmed in a month pays ₹15.93. Minimum variance holds about 15 stocks and paid 0.21%.
+- **Minimum variance isn't free (right):** it fell least in 2020, but by late 2026 it sat furthest below
+  its previous peak as higher-volatility stocks led.
+
 ## Quick start
 
 ```bash
 uv sync
 uv run python scripts/fetch_data.py         # Yahoo Finance -> data/prices.parquet
 uv run ef report frontier                   # charts -> out/
-EF_LAKE_DIR=/path/to/lake uv run ef report estimation   # also: covariance; needs a local NSE bhavcopy lake
+EF_LAKE_DIR=/path/to/lake uv run ef report estimation   # also: covariance, contest; needs a local NSE bhavcopy lake
 uv run python scripts/build_site.py         # dashboard -> site/index.html
 uv run pytest
 ```
@@ -128,10 +166,11 @@ uv run pytest
 
 - `src/ef/frontier.py`: portfolio return and risk, minimum variance, maximum Sharpe and the frontier
   (scipy SLSQP, long-only, optional weight caps); maximum Sharpe as the standard convex problem;
-  Michaud resampling.
+  Michaud resampling; risk parity (Spinu's convex form).
 - `src/ef/data.py`: Yahoo prices for today's NIFTY 50 (`docs/data/nifty50.csv`, a snapshot of NSE's
   list; `scripts/fetch_constituents.py` refreshes it). Returns on days Yahoo failed to adjust for a
   corporate action are set to zero (`docs/data/yahoo_fixes.csv`, with sources).
+- `src/ef/costs.py`: Indian equity-delivery costs (STT, stamp, exchange, SEBI, GST, DP charge, slippage).
 - `src/ef/covariance.py`: sample, Ledoit-Wolf (constant-correlation target) and EWMA covariance.
 - `src/ef/universe.py`, `walkforward.py`: point-in-time universe from a local NSE bhavcopy lake
   (50 most-traded F&O stocks before each date) and a monthly walk-forward engine (past data only,

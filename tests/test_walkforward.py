@@ -58,3 +58,18 @@ def test_returns_start_after_the_first_lookback_and_cover_every_day():
     r = out["returns"]["ew"]
     assert r.index[0] > px.index[120] and r.notna().all()
     assert set(out["weights"]["ew"]) <= set(px.index)
+
+
+def test_costs_are_charged_on_turnover_from_drifted_weights():
+    px = _prices(n_days=300)
+    members = lambda day: list(px.columns)  # noqa: E731
+    flat = lambda buy, sell, n_sells: 0.01 * (buy + sell)  # noqa: E731
+    free = walk_forward(px, members, {"ew": ew}, lookback=120)
+    paid = walk_forward(px, members, {"ew": ew}, lookback=120, cost=flat)
+    days = sorted(paid["weights"]["ew"])
+    first = paid["returns"]["ew"].loc[days[0]]
+    # first rebalance buys the whole book: 1% of 100% traded on that day
+    assert (1 + first) == pytest.approx((1 + free["returns"]["ew"].loc[days[0]]) * (1 - 0.01))
+    later = paid["turnover"]["ew"].loc[days[1]]
+    assert 0 < later < 0.2  # only the drift is traded back, not the whole book
+    assert paid["returns"]["ew"].sum() < free["returns"]["ew"].sum()

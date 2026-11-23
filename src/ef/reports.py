@@ -9,7 +9,7 @@ import pandas as pd
 
 from ef import plots
 from ef.data import INDEX, SYMBOLS, daily_returns
-from ef.frontier import frontier, max_sharpe, min_variance, port_stats
+from ef.frontier import frontier, max_sharpe, min_variance, port_stats, risk_parity
 
 RF = 0.065  # assumed risk-free rate (India 91-day T-bills ran roughly 3-7% over 2013-2026)
 TRADING_DAYS = 252
@@ -396,5 +396,138 @@ def report_covariance(out_dir: Path) -> dict:
     }
 
 
+CAPITAL = 1_000_000.0  # ₹10 lakh: the DP charge is per stock sold, so size matters
+CONTEST = Path("docs/data/contest_monthly.csv")  # monthly net returns, committed for the site
+
+
+def _inverse_vol(days: int | None):
+    def strategy(mu, cov, window):
+        v = (window.iloc[-days:] if days else window).std().fillna(window.std())
+        return ((1 / v) / (1 / v).sum()).to_numpy()
+    return strategy
+
+
+def _lw(window):
+    from ef.covariance import ledoit_wolf_cc
+
+    return ledoit_wolf_cc(window.fillna(0.0).to_numpy())
+
+
+CONTENDERS = {
+    "equal weight": _equal,
+    "inverse vol (20 days)": _inverse_vol(20),
+    "inverse vol (1 year)": _inverse_vol(TRADING_DAYS),
+    "risk parity": lambda mu, cov, w: risk_parity(_lw(w)),
+    "min variance": lambda mu, cov, w: min_variance(_lw(w)),
+    "max Sharpe": _max_sharpe,
+}
+
+
+def report_contest(out_dir: Path) -> dict:
+    """Walk-forward contest after Indian delivery costs on a ₹10 lakh portfolio."""
+    from ef.costs import RATES, trade_cost
+    from ef.data import DATA_PATH
+    from ef.universe import load_fno, load_lake, members_at
+    from ef.walkforward import walk_forward
+
+    px, turnover = load_lake()
+    fno = load_fno()
+    members = lambda day: members_at(turnover, day, 50, eligible=fno)  # noqa: E731
+    parts = {"all costs": RATES, "no DP charge": {**RATES, "dp_per_sell": 0.0},
+             "no STT": {**RATES, "stt": 0.0}, "no slippage": {**RATES, "slippage": 0.0},
+             "none": None}
+    runs = {}
+    for label, rates in parts.items():
+        cost = None if rates is None else (
+            lambda b, s_, n, r=rates: trade_cost(b, s_, n, CAPITAL, r))
+        runs[label] = walk_forward(px, members, CONTENDERS, WINDOW, cost=cost)
+    net, gross = runs["all costs"], runs["none"]
+    nifty = daily_returns(pd.read_parquet(DATA_PATH)["adj_close"][[INDEX]])[INDEX]
+    rets = net["returns"].assign(NIFTY=nifty.reindex(net["returns"].index)).dropna()
+    monthly = rets.resample("ME").apply(lambda x: (1 + x).prod() - 1)
+    monthly.index.name = "date"
+    monthly.to_csv(CONTEST, float_format="%.6f")
+
+    names = list(CONTENDERS)
+    dd = lambda r: float(((1 + r).cumprod() / (1 + r).cumprod().cummax() - 1).min())  # noqa: E731
+    on = lambda run, k: run["returns"][k].reindex(rets.index)  # noqa: E731  same days for all
+    table = {k: {**stats(rets[k]), "gross": stats(on(gross, k))["cagr"],
+                 "dd": dd(rets[k]), "turnover": float(net["turnover"][k].median())}
+             for k in names}
+    table["NIFTY"] = {**stats(rets["NIFTY"]), "dd": dd(rets["NIFTY"])}
+    cost_part = {}
+    for k in names:
+        total = table[k]["gross"] - table[k]["cagr"]
+        cost_part[k] = {lab.replace("no ", ""): stats(on(runs[lab], k))["cagr"]
+                        - table[k]["cagr"] for lab in ("no STT", "no slippage", "no DP charge")}
+        cost_part[k]["total"] = total
+    base = monthly["inverse vol (20 days)"]
+    tstat = {k: float((monthly[k] - base).mean() / (monthly[k] - base).std()
+                      * np.sqrt(len(base))) for k in names if k != "inverse vol (20 days)"}
+    yearly_vol = rets.groupby(rets.index.year).std() * np.sqrt(TRADING_DAYS)
+    mv_lower = int((yearly_vol["min variance"] < yearly_vol["inverse vol (20 days)"]).sum())
+
+    colors = dict(zip([*names, "NIFTY"], [plots.SERIES[3], plots.SERIES[0], plots.SERIES[4],
+                                          plots.SERIES[6], plots.SERIES[2], plots.SERIES[1],
+                                          plots.TEXT], strict=True))
+    fig, ax = plt.subplots(figsize=(9, 5))
+    for k in [*names, "NIFTY"]:
+        t = table[k]
+        ax.plot(t["vol"] * 100, t["cagr"] * 100, "o", ms=10, color=colors[k],
+                markeredgecolor=plots.SURFACE)
+        dy = {"inverse vol (1 year)": 5, "inverse vol (20 days)": -9}.get(k, -3)
+        ax.annotate(f"{k}  (worst fall {t['dd']:.0%})", (t["vol"] * 100, t["cagr"] * 100),
+                    xytext=(9, dy), textcoords="offset points", fontsize=8, color=plots.TEXT_2)
+    ax.set_xlim(12, 27)
+    ax.set_ylim(9, 13.5)
+    ax.set_xlabel("volatility, % a year")
+    ax.set_ylabel("return after costs, % a year")
+    ax.set_title("After costs the returns bunch together; the risk doesn't")
+    plots.save(fig, out_dir, "contest_risk_return")
+
+    fig, ax = plt.subplots(figsize=(9, 4.6))
+    for k in ("equal weight", "inverse vol (20 days)", "min variance", "NIFTY"):
+        g = (1 + rets[k]).cumprod()
+        ax.plot(g.index, (g / g.cummax() - 1) * 100, color=colors[k], label=k,
+                lw=1.2 if k == "NIFTY" else 1.8)
+    ax.set_ylabel("fall from previous peak, %")
+    ax.legend(loc="lower left", fontsize=9)
+    ax.set_title("Minimum variance fell least in 2020, but sat furthest below its peak in 2026")
+    plots.save(fig, out_dir, "contest_drawdown")
+
+    fig, ax = plt.subplots(figsize=(9, 4.6))
+    y = np.arange(len(names))[::-1]
+    left = np.zeros(len(names))
+    for part, color in (("STT", plots.SERIES[1]), ("slippage", plots.SERIES[3]),
+                        ("DP charge", plots.SERIES[6])):
+        vals = np.array([cost_part[k][part] * 100 for k in names])
+        ax.barh(y, vals, 0.55, left=left, color=color, label=part)
+        left += vals
+    for i, k in enumerate(names):
+        ax.text(left[i] + 0.02, y[i], f"{cost_part[k]['total']:.2%} a year  "
+                f"(turnover {table[k]['turnover']:.0%} a month)", va="center", fontsize=8)
+    ax.set_yticks(y, names, fontsize=9)
+    ax.set_xlim(0, left.max() * 1.9)
+    ax.set_xlabel("cost, % a year (₹10 lakh portfolio)")
+    ax.grid(axis="y", visible=False)
+    ax.legend(loc="lower right", fontsize=8)
+    ax.set_title("Twenty-day inverse volatility trades most and pays most")
+    plots.save(fig, out_dir, "contest_costs")
+
+    return {
+        "net (cagr, vol, sharpe, worst fall)": {k: (f"{t['cagr']:.1%}", f"{t['vol']:.1%}",
+                                                    round(t["sharpe"], 2), f"{t['dd']:.0%}")
+                                                for k, t in table.items()},
+        "gross cagr": {k: f"{table[k]['gross']:.1%}" for k in names},
+        "turnover a month (median)": {k: f"{table[k]['turnover']:.1%}" for k in names},
+        "cost a year (STT, slippage, DP, total)": {
+            k: tuple(f"{cost_part[k][p]:.2%}" for p in ("STT", "slippage", "DP charge", "total"))
+            for k in names},
+        "monthly return diff vs inverse vol (20d), t": {k: round(v, 2) for k, v in tstat.items()},
+        "years min variance had lower vol than inverse vol (20d)":
+            f"{mv_lower} of {len(yearly_vol)}",
+    }
+
+
 REPORTS = {"frontier": report_frontier, "estimation": report_estimation,
-           "covariance": report_covariance}
+           "covariance": report_covariance, "contest": report_contest}
