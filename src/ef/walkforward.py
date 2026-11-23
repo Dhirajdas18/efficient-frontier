@@ -38,7 +38,7 @@ def rebalance_days(index: pd.DatetimeIndex, lookback: int) -> list[pd.Timestamp]
 def walk_forward(prices: pd.DataFrame, members: Callable[[pd.Timestamp], list[str]],
                  strategies: dict[str, Strategy], lookback: int = 756,
                  min_coverage: float = 0.95,
-                 cost: Callable[[float, float, int], float] | None = None) -> dict:
+                 cost: Callable[[float, float, int, float], float] | None = None) -> dict:
     """Run every strategy on the same rebalance dates and universe.
 
     `members(day)` gives the eligible stocks, using only information before `day`. A member also
@@ -47,8 +47,9 @@ def walk_forward(prices: pd.DataFrame, members: Callable[[pd.Timestamp], list[st
     "info": DataFrame per rebalance with in-sample predicted return and volatility per strategy,
     "turnover": DataFrame per rebalance of one-way turnover (buys + sells) / 2 per strategy}.
 
-    `cost(buy, sell, n_sells)` (fractions of the portfolio traded, stocks sold) gives the cost of a
-    rebalance as a fraction of the portfolio; it is charged on the rebalance day. Trades are
+    `cost(buy, sell, n_sells, growth)` (fractions of the portfolio traded, stocks sold, portfolio
+    value relative to the start) gives the cost of a rebalance as a fraction of the portfolio; it
+    is charged on the rebalance day. Trades are
     measured from the previous month's weights after they drifted with prices.
     """
     r = prices.pct_change(fill_method=None)
@@ -57,6 +58,7 @@ def walk_forward(prices: pd.DataFrame, members: Callable[[pd.Timestamp], list[st
     weights = {name: {} for name in strategies}
     info = []
     held = {name: pd.Series(dtype=float) for name in strategies}  # drifted weights
+    wealth = dict.fromkeys(strategies, 1.0)  # portfolio value relative to the start
     turnover = {name: {} for name in strategies}
     for k, day in enumerate(days):
         i = prices.index.get_loc(day)
@@ -85,8 +87,9 @@ def walk_forward(prices: pd.DataFrame, members: Callable[[pd.Timestamp], list[st
             turnover[name][day] = (buy + sell) / 2
             hr = hold_returns(period, w)
             if cost is not None and len(hr):
-                c = cost(buy, sell, int((diff < -1e-6).sum()))
+                c = cost(buy, sell, int((diff < -1e-6).sum()), wealth[name])
                 hr.iloc[0] = (1 + hr.iloc[0]) * (1 - c) - 1
+            wealth[name] *= float((1 + hr).prod())
             rets[name].append(hr)
             grown = w * (1 + period[w.index].fillna(0.0)).prod()
             held[name] = grown / grown.sum()

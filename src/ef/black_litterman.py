@@ -50,7 +50,7 @@ def momentum_view(daily, top: int = 10, formation: int = 252, skip: int = 21,
 
     spreads = []
     for end in range(formation, len(x) - hold + 1, hold):
-        fwd = x.iloc[end:end + hold].sum()
+        fwd = np.expm1(x.iloc[end:end + hold].sum())  # simple returns, like the prior
         spreads.append(float(portfolio(end) @ fwd))
     spreads = np.array(spreads)
     per_year = periods / hold

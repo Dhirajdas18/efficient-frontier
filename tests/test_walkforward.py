@@ -63,7 +63,7 @@ def test_returns_start_after_the_first_lookback_and_cover_every_day():
 def test_costs_are_charged_on_turnover_from_drifted_weights():
     px = _prices(n_days=300)
     members = lambda day: list(px.columns)  # noqa: E731
-    flat = lambda buy, sell, n_sells: 0.01 * (buy + sell)  # noqa: E731
+    flat = lambda buy, sell, n_sells, growth: 0.01 * (buy + sell)  # noqa: E731
     free = walk_forward(px, members, {"ew": ew}, lookback=120)
     paid = walk_forward(px, members, {"ew": ew}, lookback=120, cost=flat)
     days = sorted(paid["weights"]["ew"])
@@ -87,3 +87,15 @@ def test_strategies_can_ask_for_last_months_drifted_weights():
     walk_forward(px, lambda day: list(px.columns), {"sticky": sticky}, lookback=120)
     assert seen[0].sum() == 0  # nothing held before the first rebalance
     assert seen[1].sum() == pytest.approx(1) and not np.allclose(seen[1], 1 / 6)  # drifted
+
+
+def test_cost_sees_the_portfolio_value_as_it_grows():
+    px = _prices(n_days=300)
+    seen = []
+
+    def cost(buy, sell, n_sells, growth):
+        seen.append(growth)
+        return 0.0
+
+    walk_forward(px, lambda day: list(px.columns), {"ew": ew}, lookback=120, cost=cost)
+    assert seen[0] == 1.0 and len(set(seen)) > 1

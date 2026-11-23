@@ -39,6 +39,12 @@ def load_lake(lake_dir: str | Path | None = None) -> tuple[pd.DataFrame, pd.Data
                          index=p.index))
     raw = p["close"] / p["prev_close"] - 1
     ret = p["ret"].where(~(flagged & ~matched), raw)
+    # Special sessions (Muhurat, budget-day weekends) can be missing from the lake while the next
+    # day's prev_close is that session's close; measuring from the previous row keeps the move.
+    p = p.sort_values(["symbol", "date"])
+    last_row = p.groupby("symbol")["close"].shift(1)
+    ret = ret.reindex(p.index).where(flagged.reindex(p.index) | last_row.isna(),
+                                     p["close"] / last_row - 1)
     p = p.assign(ret=ret)
     rets = p.pivot_table(index="date", columns="symbol", values="ret").sort_index()
     traded = p.pivot_table(index="date", columns="symbol", values="close").sort_index().notna()

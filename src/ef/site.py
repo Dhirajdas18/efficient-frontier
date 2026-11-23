@@ -182,7 +182,7 @@ SECTIONS = [
      "Each month since February 2016, every portfolio is rebuilt from the previous three years "
      "only, using the 50 most-traded stocks with F&O contracts at the time (no hindsight about "
      "index membership), then held for the month. Maximum Sharpe promised a Sharpe ratio of 2.2 "
-     "and delivered 0.36; all of them ended near NIFTY.",
+     "and delivered 0.35; all of them ended near NIFTY.",
      estimation_figure),
     ("Covariance estimation",
      "How far Ledoit-Wolf shrinkage pulled each month's sample covariance toward a "
@@ -193,20 +193,20 @@ SECTIONS = [
     ("After costs",
      "Six ways of weighting the same 50 stocks each month, after STT, stamp duty, exchange and "
      "depository charges and slippage on a ₹10 lakh portfolio. Returns ended within two points of "
-     "each other and of NIFTY; risk did not: minimum variance had the lowest volatility in every "
-     "year.",
+     "each other and of NIFTY; risk did not: minimum variance was less volatile than inverse "
+     "volatility in every year.",
      contest_figure),
     ("Constraints",
      "The reference model's caps (15% per stock, 30% per sector) and a penalty on trading. Capping cut "
      "maximum Sharpe's volatility from 24% to 20%; minimum variance barely needed the caps. A "
      "turnover penalty cut minimum variance's trading by three quarters at the same risk, saving "
-     "0.45% a year in costs.",
+     "0.37% a year in costs.",
      constraints_figure),
     ("Black-Litterman",
      "Black-Litterman starts from the returns that justify holding the equal-weight portfolio and "
      "blends in a view, here 12-1 momentum, sized and weighted by its own three-year track record. "
      "It kept about 6% of each month's view and ended within noise of equal weight; buying the "
-     "momentum stocks outright returned 8.5% a year after costs, the lowest here, with 31% "
+     "momentum stocks outright returned 7.2% a year after costs, the lowest here, with 31% "
      "turnover a month.",
      black_litterman_figure),
     ("Asset classes",

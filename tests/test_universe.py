@@ -86,3 +86,18 @@ def test_load_nifty_reads_the_lakes_index_files(tmp_path):
             .to_parquet(tmp_path / "index" / f"{d}.parquet")
     s = load_nifty(tmp_path)
     assert list(s) == [100.0, 101.0] and s.index[0] == pd.Timestamp("2024-01-01")
+
+
+def test_a_session_missing_from_the_lake_keeps_its_move(tmp_path):
+    from ef.universe import load_lake
+
+    # 1 Feb is a special session missing from the panel: 3 Feb's prev_close is 1 Feb's close
+    panel = pd.DataFrame({
+        "date": pd.to_datetime(["2020-01-31", "2020-02-03"]), "symbol": ["A", "A"],
+        "close": [100.0, 95.0], "prev_close": [99.0, 97.0], "ret": [0.0101, 95 / 97 - 1],
+        "ca_day": [False, False], "turnover": [1.0, 1.0]})
+    panel.to_parquet(tmp_path / "panel.parquet")
+    (tmp_path / "_ref" / "nse_ca").mkdir(parents=True)
+    (tmp_path / "_ref" / "nse_ca" / "x.csv").write_text("SYMBOL,PURPOSE,EX-DATE\n")
+    px, _ = load_lake(tmp_path)
+    assert px["A"].iloc[1] / px["A"].iloc[0] == pytest.approx(0.95)

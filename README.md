@@ -49,7 +49,7 @@ include stocks that joined because they had risen (BEL, ETERNAL, BSE are among t
 - **What the two optimal portfolios hold (right):** maximum Sharpe concentrates in a handful of
   momentum winners; minimum variance spreads across low-volatility staples and pharma.
 
-### 2. Out of sample, maximum Sharpe promised 2.2 and delivered 0.36; only the risk forecasts held
+### 2. Out of sample, maximum Sharpe promised 2.2 and delivered 0.35; only the risk forecasts held
 
 <a href="docs/img/estimation_promised.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/estimation_promised.png"><img src="docs/img/estimation_promised.gif" alt="Promised (in-sample) vs delivered (next month) Sharpe ratio and volatility for four portfolios" width="720"></picture></a>
 
@@ -60,17 +60,18 @@ included; only results are committed). Before costs.
 
 | | Promised Sharpe | Delivered Sharpe | Delivered return | Delivered volatility | Stocks held |
 |---|---|---|---|---|---|
-| Equal weight | 0.86 | 0.32 | 11.4% | 19.6% | 50 |
-| Minimum variance | 0.80 | **0.41** | 11.9% | 13.9% | 15 |
-| Maximum Sharpe | **2.23** | 0.36 | 13.1% | 23.8% | 8 |
-| Resampled maximum Sharpe | 2.03 | 0.37 | 12.7% | 20.2% | 19 |
-| NIFTY 50 index | | 0.40 | 12.3% | 16.1% | |
+| Equal weight | 0.86 | 0.30 | 10.9% | 19.4% | 50 |
+| Minimum variance | 0.81 | **0.40** | 11.7% | 13.7% | 15 |
+| Maximum Sharpe | **2.25** | 0.35 | 12.6% | 23.7% | 8 |
+| Resampled maximum Sharpe | 2.04 | 0.36 | 12.5% | 20.0% | 19 |
+| NIFTY 50 index | | 0.39 | 12.0% | 16.0% | |
 
-- **Return forecasts collapsed:** maximum Sharpe expected 54% a year on its own data and earned 13.1%.
-  A stock's past three-year return said nothing about its next month (rank correlation 0.002, t = 0.1):
-  with typical stock volatility, a three-year average return has a standard error of 16.6 points a year,
+- **Return forecasts collapsed:** maximum Sharpe expected an average return of 55% a year on its own data
+  and delivered an average of 14.7% (12.6% a year compounded).
+  A stock's past three-year return said nothing about its next month (rank correlation 0.003, t = 0.1):
+  with typical stock volatility, a three-year average return has a standard error of 16.7 points a year,
   too wide to tell a 10% stock from a 30% one.
-- **Risk forecasts held:** minimum variance expected 13.0% volatility and got 13.9%, the lowest of all
+- **Risk forecasts held:** minimum variance expected 13.0% volatility and got 13.7%, the lowest of all
   and the best delivered Sharpe ratio. Risk is far easier to estimate than return.
 
 <table><tr>
@@ -78,11 +79,11 @@ included; only results are committed). Before costs.
 <td><a href="docs/img/estimation_bootstrap.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/estimation_bootstrap.png"><img src="docs/img/estimation_bootstrap.gif" alt="Range of maximum-Sharpe weights across bootstrap resamples of the same three years"></picture></a></td>
 </tr></table>
 
-- **Everything ended near the index (left):** 11.4% to 13.1% a year against NIFTY's 12.3%, with maximum
+- **Everything ended near the index (left):** 10.9% to 12.6% a year against NIFTY's 12.0%, with maximum
   Sharpe taking the most risk to get there.
 - **The weights are noise (right):** resampling the same three years of data and re-solving, Bharti
   Airtel's maximum-Sharpe weight ranged from 0% to 29%, and was zero in 45% of resamples. Averaging over
-  resamples (Michaud) spread the portfolio from 8 to 19 stocks and cut its volatility from 23.8% to 20.2%
+  resamples (Michaud) spread the portfolio from 8 to 19 stocks and cut its volatility from 23.7% to 20.0%
   for the same return, but couldn't add information the data doesn't have.
 
 ### 3. For long-only minimum variance, how you estimate covariance barely mattered; it matters once shorting is allowed
@@ -95,11 +96,11 @@ toward a constant-correlation target (each pair pulled toward the average correl
 estimated from the data); and an exponentially weighted estimate (63-day half-life). Each is scored by the
 volatility the portfolio actually had over the following months (Feb 2016–Nov 2026).
 
-- **Long-only, the estimator made no difference:** 13.9% to 14.0% realised volatility for all three, from
-  either three or one year of data, against 19.6% for equal weight. Banning short positions already acts
+- **Long-only, the estimator made no difference:** 13.7% to 13.8% realised volatility for all three, from
+  either three or one year of data, against 19.4% for equal weight. Banning short positions already acts
   as shrinkage (Jagannathan and Ma, 2003): the optimiser can't bet heavily on noisy covariances.
-- **With shorting allowed and one year of data, shrinkage helped:** Ledoit-Wolf 13.8% against 14.4% for
-  the sample estimate and 14.6% for EWMA, with less leverage (gross exposure 1.76 against 2.24 and 2.38).
+- **With shorting allowed and one year of data, shrinkage helped:** Ledoit-Wolf 13.7% against 14.3% for
+  the sample estimate and 14.4% for EWMA, with less leverage (gross exposure 1.77 against 2.23 and 2.38).
 
 <table><tr>
 <td><a href="docs/img/covariance_forecast.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/covariance_forecast.png"><img src="docs/img/covariance_forecast.gif" alt="Realised divided by predicted volatility for each estimator, long-only and with shorting"></picture></a></td>
@@ -107,8 +108,8 @@ volatility the portfolio actually had over the following months (Feb 2016–Nov 
 </tr></table>
 
 - **Free to short, the optimiser believed its own risk estimate too much (left):** with one year of data,
-  realised volatility came in 28% above the sample estimate's prediction (39% for EWMA), against 7% for
-  Ledoit-Wolf. Long-only forecasts were within 8%. An optimiser finds the combinations whose risk looks
+  realised volatility came in 27% above the sample estimate's prediction (38% for EWMA), against 7% for
+  Ledoit-Wolf. Long-only forecasts were within 9%. An optimiser finds the combinations whose risk looks
   lowest, and some of that is estimation error.
 - **How much Ledoit-Wolf shrank (right):** a median 16% toward the target with three years of data and
   27% with one year.
@@ -120,23 +121,23 @@ volatility the portfolio actually had over the following months (Feb 2016–Nov 
 The section 2 walk-forward (130 monthly rebalances, Feb 2016–Nov 2026, the 50 most-traded F&O stocks at
 the time) with six ways of weighting, after Indian equity-delivery costs on a ₹10 lakh portfolio: STT 0.1%
 on buys and sells, stamp duty, exchange and SEBI charges with GST, a ₹15.93 depository (DP) charge per stock
-sold, and 0.05% slippage each way. Trades are measured from the previous month's weights after they
+sold, and 0.05% slippage each way, charged on the portfolio's value as it grows from ₹10 lakh. Trades are measured from the previous month's weights after they
 drifted. Risk parity and minimum variance use Ledoit-Wolf covariance.
 
 | | Return after costs | Volatility | Worst fall | Turnover a month | Cost a year |
 |---|---|---|---|---|---|
-| Equal weight | 10.5% | 19.6% | −55% | 8% | 0.91% |
-| Inverse volatility, 20 days | 11.7% | 17.9% | −46% | 17% | 1.31% |
-| Inverse volatility, 1 year | 11.8% | 17.9% | −45% | 7% | 0.88% |
-| Risk parity | 11.3% | 17.5% | −44% | 7% | 0.90% |
-| Minimum variance | 11.5% | **13.8%** | **−30%** | 9% | 0.66% |
-| Maximum Sharpe | 12.0% | 23.8% | −45% | 19% | 1.09% |
-| NIFTY 50 index (no costs) | 12.3% | 16.1% | −38% | | |
+| Equal weight | 10.2% | 19.4% | −56% | 8% | 0.70% |
+| Inverse volatility, 20 days | 11.5% | 17.8% | −47% | 17% | 1.06% |
+| Inverse volatility, 1 year | 11.6% | 17.8% | −46% | 7% | 0.65% |
+| Risk parity | 11.1% | 17.3% | −45% | 7% | 0.68% |
+| Minimum variance | 11.4% | **13.7%** | **−30%** | 9% | 0.56% |
+| Maximum Sharpe | 11.6% | 23.6% | −46% | 19% | 1.01% |
+| NIFTY 50 index (no costs) | 12.0% | 16.0% | −38% | | |
 
 - **Returns were a draw:** every scheme ended within 2 points of the others and of NIFTY, and none differed
   from 20-day inverse volatility by more than noise (monthly return differences, |t| < 1).
 - **Risk wasn't:** minimum variance had lower volatility than inverse volatility in all 11 calendar years
-  and fell 30% at worst (March 2020) against 44–55% for the other stock portfolios.
+  and fell 30% at worst (March 2020) against 45–56% for the other stock portfolios.
 
 <table><tr>
 <td><a href="docs/img/contest_costs.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/contest_costs.png"><img src="docs/img/contest_costs.gif" alt="Yearly cost of each scheme split into STT, slippage and DP charges, with monthly turnover"></picture></a></td>
@@ -144,10 +145,11 @@ drifted. Risk parity and minimum variance use Ledoit-Wolf covariance.
 </tr></table>
 
 - **Twenty-day volatility is jumpy, so its weights churn (left):** inverse volatility from 20 days of data
-  traded 17% of the portfolio a month and cost 1.31% a year; from one year of data it gave the same return
-  and risk with 7% turnover and 0.88% cost.
-- **On ₹10 lakh, DP charges cost more than STT** for the 50-stock schemes: about 0.54% a year, because
-  every stock trimmed in a month pays ₹15.93. Minimum variance holds about 15 stocks and paid 0.21%.
+  traded 17% of the portfolio a month and cost 1.06% a year; from one year of data it gave the same return
+  and risk with 7% turnover and 0.65% cost.
+- **On ₹10 lakh, DP charges cost more than STT** for the low-turnover 50-stock schemes (equal weight,
+  one-year inverse volatility, risk parity): 0.30–0.35% a year against 0.21–0.22%, because every stock
+  trimmed in a month pays ₹15.93. Minimum variance holds about 15 stocks and paid 0.12%.
 - **Minimum variance isn't free (right):** it fell least in 2020, but by late 2026 it sat furthest below
   its previous peak of all the schemes.
 
@@ -160,21 +162,21 @@ industry above 30%; industries from NSE's index lists, with the 11 delisted or m
 hand, `docs/data/sectors.csv`) and, for minimum variance, a penalty on trading: the optimiser minimises
 variance plus λ times the turnover from last month's drifted weights.
 
-- **Caps tamed maximum Sharpe:** volatility fell from 23.8% to 20.1% and the worst fall from −45% to −36%.
-  Its return after costs rose from 12.0% to 13.6%, but that difference is noise (monthly t = 0.18).
+- **Caps tamed maximum Sharpe:** volatility fell from 23.6% to 19.9% and the worst fall from −46% to −36%.
+  Its return after costs rose from 11.6% to 13.3%, but that difference is noise (monthly t = 0.22).
 - **Minimum variance barely needed them:** its largest stock was 17% and largest industry 27% (median)
-  even uncapped, so capping changed volatility by 0.1 point.
+  even uncapped, so capping left its volatility at 13.7%.
 
 <table><tr>
 <td><a href="docs/img/constraints_penalty.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/constraints_penalty.png"><img src="docs/img/constraints_penalty.gif" alt="Monthly turnover, yearly cost and volatility of capped minimum variance at four turnover penalties"></picture></a></td>
 <td><a href="docs/img/constraints_sectors.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/constraints_sectors.png"><img src="docs/img/constraints_sectors.gif" alt="Average industry weights of inverse volatility, minimum variance and maximum Sharpe"></picture></a></td>
 </tr></table>
 
-- **A turnover penalty paid for itself (left):** at λ = 0.005, median monthly turnover fell from 8.8% to
-  2.2% and costs from 0.67% to 0.22% a year, with volatility at 14.0% against 13.9%. All four settings are
+- **A turnover penalty paid for itself (left):** at λ = 0.005, median monthly turnover fell from 8.9% to
+  2.1% and costs from 0.57% to 0.20% a year, with volatility at 13.9% against 13.7%. All four settings are
   shown; none was picked on the results.
-- **Each scheme leans on different industries (right):** minimum variance held 24% in consumer staples on
-  average (largest industry in 75 of 130 months), inverse volatility 27% in financials.
+- **Each scheme leans on different industries (right):** minimum variance held 23% in consumer staples on
+  average, inverse volatility 27% in financials.
 
 ### 6. Black-Litterman kept 6% of a weak momentum view; buying momentum outright did worse after costs
 
@@ -188,11 +190,11 @@ best return over the past year, skipping the last month, beat the 10 worst. Its 
 top-minus-bottom spread over the previous three years, and its confidence the uncertainty of that average.
 Same walk-forward, caps and costs as sections 4–5.
 
-- **Calm inputs (above):** in November 2026 the past three years' sample means ranged from −12% to +84% a
+- **Calm inputs (above):** in November 2026 the past three years' sample means ranged from −12% to +85% a
   year; Black-Litterman's expected returns ranged from 3% to 13%.
-- **The view was weak:** across the whole period, momentum ranked next month's returns at 0.025 (t = 1.15),
-  a top-minus-bottom spread of 8.2% a year (t = 1.06). With three years of noisy evidence behind it, the
-  posterior kept a median 6% of each month's view (4% to 11%).
+- **The view was weak:** across the whole period, momentum ranked next month's returns at 0.024 (t = 1.08),
+  a top-minus-bottom spread of 3.9% a year (t = 0.51). With three years of noisy evidence behind it, the
+  posterior kept a median 6% of each month's view (3% to 10%).
 
 <table><tr>
 <td><a href="docs/img/bl_view.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/bl_view.png"><img src="docs/img/bl_view.gif" alt="Momentum view from the past three years against the part the posterior kept, each month"></picture></a></td>
@@ -201,15 +203,15 @@ Same walk-forward, caps and costs as sections 4–5.
 
 | After costs | Return | Volatility | Worst fall | Turnover a month |
 |---|---|---|---|---|
-| Equal weight (the prior) | 10.5% | 19.6% | −55% | 8% |
-| Black-Litterman + momentum view | 11.2% | 19.3% | −46% | 13% |
-| Momentum, top 10 stocks | 8.5% | 25.0% | −51% | 31% |
-| Maximum Sharpe on sample means, capped | 13.6% | 20.1% | −36% | 19% |
-| NIFTY 50 index (no costs) | 12.3% | 16.1% | −38% | |
+| Equal weight (the prior) | 10.2% | 19.4% | −56% | 8% |
+| Black-Litterman + momentum view | 11.0% | 19.3% | −48% | 13% |
+| Momentum, top 10 stocks | 7.2% | 25.0% | −52% | 31% |
+| Maximum Sharpe on sample means, capped | 13.3% | 19.9% | −36% | 18% |
+| NIFTY 50 index (no costs) | 12.0% | 16.0% | −38% | |
 
 - **Used with stated confidence, the view changed little:** Black-Litterman ended within noise of its
-  equal-weight starting point (monthly t = 0.29).
-- **Used outright, it cost money:** the 10 momentum stocks turned over 31% a month and returned 8.5% after
+  equal-weight starting point (monthly t = 0.39).
+- **Used outright, it cost money:** the 10 momentum stocks turned over 31% a month and returned 7.2% after
   costs, the lowest here. None of the differences from equal weight beat noise (|t| ≤ 0.63).
 
 ### 7. For a rupee investor, mixing in gold and bonds cut NIFTY's risk far more than its return
@@ -220,7 +222,8 @@ Four asset classes in rupees, June 2016 to November 2026: NIFTY 50 (NIFTYBEES ET
 (GOLDBEES ETF), government bonds (NSE's Composite G-Sec total-return index) and US shares (S&P 500 with
 dividends, converted at USD/INR); cash is NSE's overnight-rate index (5.4% a year). Mixes are rebalanced
 monthly from July 2017, with optimisers estimating from the previous year only and the same costs as
-section 4 (applied to every class, which slightly overstates costs for gold and bonds). Before tax.
+section 4 (applied to every class, which slightly overstates costs for gold and bonds). Volatility
+from weekly returns. Before tax.
 
 | Asset | Return | Volatility | Worst fall | Correlation with NIFTY (weekly) |
 |---|---|---|---|---|
@@ -231,13 +234,13 @@ section 4 (applied to every class, which slightly overstates costs for gold and 
 
 | Mix, after costs (Jul 2017 on) | Return | Volatility | Worst fall |
 |---|---|---|---|
-| NIFTY only | 11.8% | 14.5% | −36% |
-| 60% NIFTY / 40% bonds | 9.8% | 8.9% | −22% |
-| 60% NIFTY / 20% bonds / 20% gold | 11.8% | 9.4% | −23% |
-| Equal, all four | 13.2% | 7.9% | −18% |
-| Risk parity, all four (57% bonds on average) | 9.6% | 4.8% | −12% |
-| Minimum variance, all four (84% bonds) | 7.0% | 3.4% | −6% |
-| Maximum Sharpe, all four | 8.1% | 10.0% | −18% |
+| NIFTY only | 12.2% | 15.2% | −36% |
+| 60% NIFTY / 40% bonds | 10.1% | 9.4% | −22% |
+| 60% NIFTY / 20% bonds / 20% gold | 12.3% | 9.7% | −23% |
+| Equal, all four | 13.7% | 8.3% | −18% |
+| Risk parity, all four (57% bonds on average) | 9.9% | 5.0% | −12% |
+| Minimum variance, all four (84% bonds) | 7.2% | 3.6% | −6% |
+| Maximum Sharpe, all four | 8.4% | 9.5% | −18% |
 
 - **Diversification across asset classes worked where stock picking didn't:** 60/20/20 matched NIFTY's
   return with two thirds of the volatility and a −23% worst fall instead of −36%; an equal mix of all four

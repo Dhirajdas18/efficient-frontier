@@ -160,11 +160,17 @@ def lake_walk(strategies: dict, lookback: int = WINDOW) -> tuple[dict, pd.DataFr
     return out, px
 
 
-def stats(r: pd.Series) -> dict:
-    """Annualised compound return, volatility and Sharpe of daily returns."""
-    vol = float(r.std() * np.sqrt(TRADING_DAYS))
-    cagr = float((1 + r).prod() ** (TRADING_DAYS / len(r)) - 1)
-    return {"cagr": cagr, "vol": vol, "sharpe": float((r.mean() * TRADING_DAYS - RF) / vol)}
+def stats(r: pd.Series, rf: float = RF) -> dict:
+    """Compound return, volatility and Sharpe of a return series, annualised by calendar time:
+    observations a year = (n - 1) / years between the first and last date, so NSE's ~247
+    trading days or a weekday calendar are both handled."""
+    r = r.dropna()
+    span = (r.index[-1] - r.index[0]).days / 365.25
+    per_year = (len(r) - 1) / span
+    vol = float(r.std() * np.sqrt(per_year))
+    cagr = float((1 + r).prod() ** (per_year / len(r)) - 1)
+    return {"cagr": cagr, "vol": vol, "sharpe": float((r.mean() * per_year - rf) / vol),
+            "mean": float(r.mean() * per_year)}
 
 
 def report_estimation(out_dir: Path) -> dict:
@@ -264,8 +270,8 @@ def report_estimation(out_dir: Path) -> dict:
                       f"median members {int(info['n'].median())}",
         "promised (ret, vol, sharpe)": {k: tuple(round(v, 3) for v in pred[k].values())
                                         for k in pred},
-        "delivered (cagr, vol, sharpe)": {k: tuple(round(v, 3) for v in real[k].values())
-                                          for k in real},
+        "delivered (cagr, vol, sharpe, arithmetic mean)": {
+            k: tuple(round(v, 3) for v in real[k].values()) for k in real},
         "stocks held >1% (median)": held,
         "past-3y-return rank IC on next month: mean / t / share>0":
             (round(float(ics.mean()), 3), round(float(ics.mean() / ics.std() * np.sqrt(len(ics))),
@@ -437,7 +443,7 @@ def report_contest(out_dir: Path) -> dict:
     runs = {}
     for label, rates in parts.items():
         cost = None if rates is None else (
-            lambda b, s_, n, r=rates: trade_cost(b, s_, n, CAPITAL, r))
+            lambda b, s_, n, g, r=rates: trade_cost(b, s_, n, CAPITAL * g, r))
         runs[label] = walk_forward(px, members, CONTENDERS, WINDOW, cost=cost)
     net, gross = runs["all costs"], runs["none"]
     nifty = load_nifty().pct_change()
@@ -580,7 +586,7 @@ def report_constraints(out_dir: Path) -> dict:
     members = lambda day: members_at(turnover, day, 50, eligible=fno)  # noqa: E731
     strategies = _constrained()
     net = walk_forward(px, members, strategies, WINDOW,
-                       cost=lambda b, s_, n: trade_cost(b, s_, n, CAPITAL))
+                       cost=lambda b, s_, n, g: trade_cost(b, s_, n, CAPITAL * g))
     gross = walk_forward(px, members, strategies, WINDOW)
     rets = net["returns"]
     dd = lambda r: float(((1 + r).cumprod() / (1 + r).cumprod().cummax() - 1).min())  # noqa: E731
@@ -724,7 +730,7 @@ def report_black_litterman(out_dir: Path) -> dict:
     px, turnover = load_lake()
     fno = load_fno()
     out = walk_forward(px, lambda day: members_at(turnover, day, 50, eligible=fno), strategies,
-                       WINDOW, cost=lambda b, s_, n: trade_cost(b, s_, n, CAPITAL))
+                       WINDOW, cost=lambda b, s_, n, g: trade_cost(b, s_, n, CAPITAL * g))
     nifty = load_nifty().pct_change()
     rets = out["returns"].assign(NIFTY=nifty.reindex(out["returns"].index))
     monthly = rets.resample("ME").apply(lambda x: (1 + x).prod() - 1)
@@ -739,6 +745,20 @@ def report_black_litterman(out_dir: Path) -> dict:
     days = list(out["info"].index)
     lg = pd.DataFrame([{k: v for k, v in e.items() if k not in ("sample", "pi", "post")}
                        for e in log], index=days)
+
+    from scipy.stats import spearmanr
+
+    r_all = px.pct_change(fill_method=None)
+    ic, spread = [], []
+    for a, b in zip(days, days[1:], strict=False):
+        names = out["weights"]["equal weight (the prior)"][a].index
+        i = px.index.get_loc(a)
+        mom = np.log1p(r_all.iloc[i - 252:i - 21][names].fillna(0.0)).sum()
+        fwd = (1 + r_all.loc[a:b].iloc[:-1][names].fillna(0.0)).prod() - 1
+        ic.append(spearmanr(mom, fwd).statistic)
+        spread.append(fwd[mom.nlargest(10).index].mean() - fwd[mom.nsmallest(10).index].mean())
+    ic, spread = np.array(ic), np.array(spread)
+    tt = lambda x: float(x.mean() / x.std() * np.sqrt(len(x)))  # noqa: E731
 
     last = log[-1]
     order = last["sample"].sort_values().index
@@ -790,6 +810,9 @@ def report_black_litterman(out_dir: Path) -> dict:
             k: (f"{t['cagr']:.1%}", f"{t['vol']:.1%}", round(t["sharpe"], 2), f"{t['dd']:.0%}",
                 f"{t['turnover']:.1%}") for k, t in table.items()},
         "monthly diff vs equal weight, t": {k: round(v, 2) for k, v in tstat.items()},
+        "momentum IC mean / t; top-bottom spread a year / t": (
+            round(float(ic.mean()), 3), round(tt(ic), 2), f"{spread.mean() * 12:.1%}",
+            round(tt(spread), 2)),
         "view q median / share positive": (f"{lg['q'].median():.1%}",
                                            round(float((lg['q'] > 0).mean()), 2)),
         "share of view adopted, median (10-90%)": (
@@ -844,12 +867,17 @@ def report_assets(out_dir: Path) -> dict:
         "max Sharpe, all four": lambda mu, cov, w: max_sharpe(mu.to_numpy(), cov.to_numpy(), rf),
     }
     out = walk_forward(px[CLASSES], lambda day: list(CLASSES), mixes, TRADING_DAYS,
-                       cost=lambda b, s_, n: trade_cost(b, s_, n, CAPITAL))
+                       cost=lambda b, s_, n, g: trade_cost(b, s_, n, CAPITAL * g))
     rets = out["returns"]
+    # Weekly returns, like the asset table: a weekday calendar carries holidays as zero days.
+    wk = (1 + rets).resample("W-FRI").prod() - 1
+    cash = px["cash"].loc[rets.index[0]:]
+    rf_mix = float((cash.iloc[-1] / cash.iloc[0])
+                   ** (365.25 / (cash.index[-1] - cash.index[0]).days) - 1)
     dd = lambda r: float(((1 + r).cumprod() / (1 + r).cumprod().cummax() - 1).min())  # noqa: E731
-    table = {k: {**stats(rets[k]), "dd": dd(rets[k])} for k in mixes}
+    table = {k: {**stats(wk[k], rf_mix), "dd": dd(rets[k])} for k in mixes}
     for k in table:
-        table[k]["sharpe"] = (table[k]["cagr"] - rf) / table[k]["vol"]
+        table[k]["sharpe"] = (table[k]["cagr"] - rf_mix) / table[k]["vol"]
     avg_w = {k: pd.DataFrame(out["weights"][k]).T.mean() for k in
              ("risk parity, all four", "min variance, all four", "max Sharpe, all four")}
     pd.DataFrame(table).T.rename_axis("mix")[["cagr", "vol", "sharpe", "dd"]].to_csv(
@@ -868,7 +896,7 @@ def report_assets(out_dir: Path) -> dict:
     ax.yaxis.set_minor_locator(matplotlib.ticker.NullLocator())
     ax.set_ylabel("growth of ₹1 (log scale)")
     ax.legend(loc="upper left", fontsize=9)
-    ax.set_title("Four asset classes in rupees, Aug 2016 to Nov 2026")
+    ax.set_title(f"Four asset classes in rupees, {px.index[0]:%b %Y} to {px.index[-1]:%b %Y}")
     plots.save(fig, out_dir, "assets_growth")
 
     fig, ax = plt.subplots(figsize=(6.4, 5))
@@ -913,7 +941,8 @@ def report_assets(out_dir: Path) -> dict:
     a, b = "2020-02-19", "2020-03-23"
     covid = (px.loc[b] / px.loc[a] - 1)[[*CLASSES, "S&P 500 (USD)", "USDINR"]]
     return {
-        "window": f"{px.index[0]:%Y-%m-%d} to {px.index[-1]:%Y-%m-%d}; cash {rf:.1%}",
+        "window": f"{px.index[0]:%Y-%m-%d} to {px.index[-1]:%Y-%m-%d}; cash {rf:.1%} "
+                  f"(over the mixes' period {rf_mix:.1%})",
         "assets (cagr, vol, worst fall)": {k: (f"{v['cagr']:.1%}", f"{v['vol']:.1%}",
                                                f"{v['dd']:.0%}") for k, v in assets.items()},
         "weekly correlations with NIFTY": corr["NIFTY 50"].round(2).to_dict(),
