@@ -14,7 +14,7 @@ rebuilt weekly by GitHub Actions. Hover the frontier to see what each portfolio 
 
 - [x] Mean-variance maths: portfolio risk, minimum variance, maximum Sharpe, long-only frontier (SLSQP), capital market line
 - [x] Estimation error: 130 monthly out-of-sample rebalances on a point-in-time universe; resampling
-- [ ] Covariance estimation: sample, Ledoit-Wolf shrinkage, EWMA
+- [x] Covariance estimation: sample, Ledoit-Wolf shrinkage (constant correlation), EWMA
 - [ ] Walk-forward contest after costs: equal weight, inverse volatility, minimum variance, risk parity, maximum Sharpe
 - [ ] Constraints: stock and sector caps, turnover penalty
 - [ ] Black-Litterman: market prior plus views
@@ -85,13 +85,41 @@ included; only results are committed). Before costs.
   resamples (Michaud) spread the portfolio from 8 to 19 stocks and cut its volatility from 23.9% to 20.2%
   for the same return, but couldn't add information the data doesn't have.
 
+### 3. For long-only minimum variance, how you estimate covariance barely mattered; it matters once shorting is allowed
+
+<a href="docs/img/covariance_realised.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/covariance_realised.png"><img src="docs/img/covariance_realised.gif" alt="Realised volatility of minimum variance with three covariance estimators, long-only and with shorting, from three and one year of data" width="720"></picture></a>
+
+The same monthly walk-forward as section 2, minimum variance only, with three ways of estimating the
+covariance matrix from the window's daily returns: the plain sample covariance; Ledoit-Wolf shrinkage
+toward a constant-correlation target (each pair pulled toward the average correlation, by an amount
+estimated from the data); and an exponentially weighted estimate (63-day half-life). Each is scored by the
+volatility the portfolio actually had over the following months (Feb 2016–Nov 2026).
+
+- **Long-only, the estimator made no difference:** 13.9% to 14.0% realised volatility for all three, from
+  either three or one year of data, against 19.6% for equal weight. Banning short positions already acts
+  as shrinkage (Jagannathan and Ma, 2003): the optimiser can't bet heavily on noisy covariances.
+- **With shorting allowed and one year of data, shrinkage helped:** Ledoit-Wolf 13.8% against 14.4% for
+  the sample estimate and 14.6% for EWMA, with less leverage (gross exposure 1.76 against 2.24 and 2.38).
+
+<table><tr>
+<td><a href="docs/img/covariance_forecast.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/covariance_forecast.png"><img src="docs/img/covariance_forecast.gif" alt="Realised divided by predicted volatility for each estimator, long-only and with shorting"></picture></a></td>
+<td><a href="docs/img/covariance_shrinkage.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/covariance_shrinkage.png"><img src="docs/img/covariance_shrinkage.gif" alt="Ledoit-Wolf shrinkage intensity at each rebalance, from three and one year of data"></picture></a></td>
+</tr></table>
+
+- **Free to short, the optimiser believed its own risk estimate too much (left):** with one year of data,
+  realised volatility came in 28% above the sample estimate's prediction (39% for EWMA), against 7% for
+  Ledoit-Wolf. Long-only forecasts were within 8%. An optimiser finds the combinations whose risk looks
+  lowest, and some of that is estimation error.
+- **How much Ledoit-Wolf shrank (right):** a median 16% toward the target with three years of data and
+  27% with one year.
+
 ## Quick start
 
 ```bash
 uv sync
 uv run python scripts/fetch_data.py         # Yahoo Finance -> data/prices.parquet
 uv run ef report frontier                   # charts -> out/
-EF_LAKE_DIR=/path/to/lake uv run ef report estimation   # needs a local NSE bhavcopy lake
+EF_LAKE_DIR=/path/to/lake uv run ef report estimation   # also: covariance; needs a local NSE bhavcopy lake
 uv run python scripts/build_site.py         # dashboard -> site/index.html
 uv run pytest
 ```
@@ -104,6 +132,7 @@ uv run pytest
 - `src/ef/data.py`: Yahoo prices for today's NIFTY 50 (`docs/data/nifty50.csv`, a snapshot of NSE's
   list; `scripts/fetch_constituents.py` refreshes it). Returns on days Yahoo failed to adjust for a
   corporate action are set to zero (`docs/data/yahoo_fixes.csv`, with sources).
+- `src/ef/covariance.py`: sample, Ledoit-Wolf (constant-correlation target) and EWMA covariance.
 - `src/ef/universe.py`, `walkforward.py`: point-in-time universe from a local NSE bhavcopy lake
   (50 most-traded F&O stocks before each date) and a monthly walk-forward engine (past data only,
   buy-and-hold between rebalances, delisted stocks stay at their last price). Only results are

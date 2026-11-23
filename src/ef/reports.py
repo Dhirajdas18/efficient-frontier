@@ -279,4 +279,122 @@ def report_estimation(out_dir: Path) -> dict:
     }
 
 
-REPORTS = {"frontier": report_frontier, "estimation": report_estimation}
+SHRINKAGE = Path("docs/data/covariance_shrinkage.csv")  # Ledoit-Wolf intensity per rebalance
+
+
+def _min_var_with(estimator, long_only: bool, log: list):
+    """Minimum variance from a covariance estimator on the window's daily returns; records the
+    portfolio's predicted volatility."""
+    def strategy(mu, cov, window):
+        c = estimator(window.fillna(0.0).to_numpy())
+        if long_only:
+            w = min_variance(c)
+        else:
+            w = np.linalg.solve(c, np.ones(len(c)))  # unconstrained: Σ⁻¹1 / 1'Σ⁻¹1
+            w /= w.sum()
+        log.append(float(np.sqrt(w @ c @ w)))
+        return w
+    return strategy
+
+
+def report_covariance(out_dir: Path) -> dict:
+    """Covariance estimators judged by the next month's realised risk of minimum variance."""
+    from ef.covariance import ewma_cov, ledoit_wolf_cc, sample_cov
+
+    shrinks: dict[int, list] = {}
+    estimators = {"sample": sample_cov, "Ledoit-Wolf": ledoit_wolf_cc,
+                  "EWMA 63d": lambda x: ewma_cov(x, 63)}
+    results, ratio, gross, dates = {}, {}, {}, {}
+    for lb in (WINDOW, TRADING_DAYS):
+        shrinks[lb] = []
+
+        def lw_logged(x, lb=lb):
+            c, k = ledoit_wolf_cc(x, return_shrinkage=True)
+            shrinks[lb].append(k)
+            return c
+
+        logs = {}
+        strategies = {}
+        for name, est in estimators.items():
+            for long_only in (True, False):
+                key = f"{name}, {'long-only' if long_only else 'shorting'}"
+                logs[key] = []
+                strategies[key] = _min_var_with(lw_logged if name == "Ledoit-Wolf" else est,
+                                                long_only, logs[key])
+        out, _ = lake_walk(strategies, lookback=lb)
+        dates[lb] = list(out["info"].index)
+        rets = out["returns"][out["returns"].index >= "2016-02-01"]
+        for key in strategies:
+            r = out["returns"][key]
+            month_vol = r.groupby(pd.Grouper(freq="ME")).std() * np.sqrt(TRADING_DAYS)
+            pred = np.array(logs[key][: len(month_vol)])
+            keep = month_vol.index >= "2016-02-01"  # same months for both look-backs
+            month_vol, pred = month_vol[keep], pred[keep]
+            results[(lb, key)] = stats(rets[key])["vol"]
+            ratio[(lb, key)] = float(np.median(month_vol.to_numpy() / pred))
+            gross[(lb, key)] = float(np.median([w.abs().sum() for d, w in
+                                                out["weights"][key].items()
+                                                if d >= pd.Timestamp("2016-02-01")]))
+    labels = list(estimators)
+    yrs = {WINDOW: "3 years", TRADING_DAYS: "1 year"}
+
+    fig, axes = plt.subplots(1, 2, figsize=(9, 4.6), sharey=True)
+    xs = np.arange(len(labels))
+    for ax, lb in zip(axes, (WINDOW, TRADING_DAYS), strict=True):
+        lo = [results[(lb, f"{n}, long-only")] * 100 for n in labels]
+        sh = [results[(lb, f"{n}, shorting")] * 100 for n in labels]
+        ax.bar(xs - 0.2, lo, 0.38, color=plots.SERIES[0], label="long-only")
+        ax.bar(xs + 0.2, sh, 0.38, color=plots.SERIES[1], label="shorting allowed")
+        for i in range(len(labels)):
+            ax.text(i - 0.2, lo[i] + 0.1, f"{lo[i]:.1f}", ha="center", fontsize=8)
+            ax.text(i + 0.2, sh[i] + 0.1, f"{sh[i]:.1f}", ha="center", fontsize=8)
+        ax.set_xticks(xs, labels, fontsize=9)
+        ax.set_ylim(0, 17)
+        ax.grid(axis="x", visible=False)
+        ax.set_title(f"estimated from {yrs[lb]}", fontsize=10, fontweight="normal",
+                     color=plots.TEXT_2)
+    axes[0].set_ylabel("realised volatility of minimum variance, %")
+    axes[1].legend(loc="upper right", fontsize=8)
+    fig.suptitle("Long-only, the estimator barely mattered; with shorting, shrinkage helped",
+                 x=0.06, ha="left", fontsize=13, fontweight="semibold", color=plots.TEXT)
+    plots.save(fig, out_dir, "covariance_realised")
+
+    fig, ax = plt.subplots(figsize=(9, 4.6))
+    keys = [f"{n}, {m}" for m in ("long-only", "shorting") for n in labels]
+    xs = np.arange(len(keys))
+    vals = [ratio[(TRADING_DAYS, k)] for k in keys]
+    ax.bar(xs, vals, 0.55, color=[plots.SERIES[0]] * 3 + [plots.SERIES[1]] * 3)
+    ax.axhline(1, color=plots.TEXT_2, lw=1, ls="--")
+    for i, v in enumerate(vals):
+        ax.text(i, v + 0.04, f"{v:.2f}", ha="center", fontsize=9)
+    ax.set_xticks(xs, [k.replace(", ", "\n") for k in keys], fontsize=8)
+    ax.set_ylabel("realised ÷ predicted volatility (median month)")
+    ax.grid(axis="x", visible=False)
+    ax.set_title("Free to short, the optimiser trusted its own risk estimate too much")
+    plots.save(fig, out_dir, "covariance_forecast")
+
+    fig, ax = plt.subplots(figsize=(9, 4.6))
+    for lb, color in ((WINDOW, plots.SERIES[0]), (TRADING_DAYS, plots.SERIES[1])):
+        k = shrinks[lb][::2]  # the long-only and shorting runs estimate the same windows
+        ax.plot(dates[lb], np.array(k) * 100, color=color, label=f"estimated from {yrs[lb]}")
+    pd.DataFrame({yrs[lb]: pd.Series(shrinks[lb][::2], index=dates[lb]) for lb in dates}) \
+        .rename_axis("date").to_csv(SHRINKAGE, float_format="%.4f")
+    ax.set_ylabel("Ledoit-Wolf shrinkage toward constant correlation, %")
+    ax.legend(loc="upper right")
+    ax.set_title("How far Ledoit-Wolf pulled the sample estimate toward its target")
+    plots.save(fig, out_dir, "covariance_shrinkage")
+
+    return {
+        "realised vol (lookback, strategy)": {f"{yrs[lb]} | {k}": f"{v:.1%}"
+                                              for (lb, k), v in results.items()},
+        "realised/predicted (median month)": {f"{yrs[lb]} | {k}": round(v, 2)
+                                              for (lb, k), v in ratio.items()},
+        "gross exposure median": {f"{yrs[lb]} | {k}": round(v, 2)
+                                  for (lb, k), v in gross.items() if "shorting" in k},
+        "shrinkage median (3y, 1y)": (round(float(np.median(shrinks[WINDOW])), 2),
+                                      round(float(np.median(shrinks[TRADING_DAYS])), 2)),
+    }
+
+
+REPORTS = {"frontier": report_frontier, "estimation": report_estimation,
+           "covariance": report_covariance}

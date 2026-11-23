@@ -110,6 +110,23 @@ def estimation_figure(_r) -> go.Figure:
     return fig
 
 
+def shrinkage_figure(_r) -> go.Figure:
+    """Ledoit-Wolf shrinkage intensity at each monthly rebalance (docs/data)."""
+    from ef.reports import SHRINKAGE
+
+    d = pd.read_csv(SHRINKAGE, index_col="date", parse_dates=["date"])
+    fig = go.Figure()
+    for col, color in zip(d.columns, (plots.SERIES[0], plots.SERIES[1]), strict=False):
+        v = d[col].dropna()
+        fig.add_scatter(x=list(v.index.strftime("%Y-%m-%d")), y=(v * 100).round(1).tolist(),
+                        name=f"estimated from {col}", mode="lines",
+                        line=dict(color=color, width=2),
+                        hovertemplate=f"{col}: %{{y:.0f}}% shrinkage<extra></extra>")
+    fig = _layout(fig, "shrinkage toward constant correlation, %")
+    fig.update_xaxes(range=None, autorange=True)
+    return fig
+
+
 SECTIONS = [
     ("The efficient frontier",
      "Every NIFTY 50 stock (grey) and the long-only efficient frontier built from them, using the "
@@ -123,6 +140,12 @@ SECTIONS = [
      "index membership), then held for the month. Maximum Sharpe promised a Sharpe ratio of 2.2 "
      "and delivered 0.38; all of them ended near NIFTY.",
      estimation_figure),
+    ("Covariance estimation",
+     "How far Ledoit-Wolf shrinkage pulled each month's sample covariance toward a "
+     "constant-correlation target. It shrinks more with one year of data than with three. For "
+     "long-only minimum variance it barely changed the realised risk; with "
+     "short positions allowed it cut it.",
+     shrinkage_figure),
 ]
 
 
