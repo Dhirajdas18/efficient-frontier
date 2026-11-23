@@ -149,3 +149,12 @@ def risk_parity(cov) -> np.ndarray:
                                                         "maxiter": 5000})
     y = res.x
     return y / y.sum()
+
+
+def max_utility(mu, cov, delta: float = 2.5, bounds=(0.0, 1.0), sectors=None,
+                sector_cap=None) -> np.ndarray:
+    """Mean-variance optimum: maximise w'mu - delta/2 · w'Σw, fully invested."""
+    mu, cov = np.asarray(mu, dtype=float), np.asarray(cov, dtype=float)
+    scale = float(np.mean(np.diag(cov)))
+    return _solve(lambda w: -(w @ mu - delta / 2 * w @ cov @ w) / scale, len(mu), bounds,
+                  _sector_constraints(sectors, sector_cap))

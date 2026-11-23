@@ -10,6 +10,7 @@ import pandas as pd
 from ef import plots
 from ef.data import INDEX, SYMBOLS, daily_returns
 from ef.frontier import frontier, max_sharpe, min_variance, port_stats, risk_parity
+from ef.universe import load_nifty
 
 RF = 0.065  # assumed risk-free rate (India 91-day T-bills ran roughly 3-7% over 2013-2026)
 TRADING_DAYS = 252
@@ -170,14 +171,12 @@ def report_estimation(out_dir: Path) -> dict:
     """Estimation error: portfolios picked on the past three years, scored on the next month."""
     from scipy.stats import spearmanr
 
-    from ef.data import DATA_PATH
-
     strategies = {"equal weight": _equal, "min variance": _min_var, "max Sharpe": _max_sharpe,
                   "resampled max Sharpe": _resampled}
     out, px = lake_walk(strategies)
     rets, info = out["returns"], out["info"]
-    nifty = daily_returns(pd.read_parquet(DATA_PATH)["adj_close"][[INDEX]])[INDEX]
-    rets = rets.assign(NIFTY=nifty.reindex(rets.index)).dropna()
+    nifty = load_nifty().pct_change()
+    rets = rets.assign(NIFTY=nifty.reindex(rets.index))
     monthly = rets.resample("ME").apply(lambda x: (1 + x).prod() - 1)
     monthly.index.name = "date"
     monthly.to_csv(ESTIMATION, float_format="%.6f")
@@ -426,7 +425,6 @@ CONTENDERS = {
 def report_contest(out_dir: Path) -> dict:
     """Walk-forward contest after Indian delivery costs on a ₹10 lakh portfolio."""
     from ef.costs import RATES, trade_cost
-    from ef.data import DATA_PATH
     from ef.universe import load_fno, load_lake, members_at
     from ef.walkforward import walk_forward
 
@@ -442,8 +440,8 @@ def report_contest(out_dir: Path) -> dict:
             lambda b, s_, n, r=rates: trade_cost(b, s_, n, CAPITAL, r))
         runs[label] = walk_forward(px, members, CONTENDERS, WINDOW, cost=cost)
     net, gross = runs["all costs"], runs["none"]
-    nifty = daily_returns(pd.read_parquet(DATA_PATH)["adj_close"][[INDEX]])[INDEX]
-    rets = net["returns"].assign(NIFTY=nifty.reindex(net["returns"].index)).dropna()
+    nifty = load_nifty().pct_change()
+    rets = net["returns"].assign(NIFTY=nifty.reindex(net["returns"].index))
     monthly = rets.resample("ME").apply(lambda x: (1 + x).prod() - 1)
     monthly.index.name = "date"
     monthly.to_csv(CONTEST, float_format="%.6f")
@@ -677,6 +675,132 @@ def report_constraints(out_dir: Path) -> dict:
     }
 
 
+DELTA, TAU = 2.5, 0.05  # risk aversion and prior uncertainty (He & Litterman's usual values)
+BL_MONTHLY = Path("docs/data/black_litterman_monthly.csv")
+
+
+def _bl_strategy(log: list):
+    from ef.black_litterman import implied_returns, momentum_view, posterior
+    from ef.frontier import max_utility
+
+    def strategy(mu, cov, window):
+        c = _lw(window)
+        prior = np.full(len(mu), 1 / len(mu))
+        pi = implied_returns(c, prior, DELTA)
+        p, q, omega = momentum_view(window)
+        post, cov_bl = posterior(pi, c, p.to_numpy()[None, :], np.array([q]),
+                                 np.array([[omega]]), TAU)
+        view_pi, view_post = float(p @ pi), float(p @ post)
+        log.append({"q": q, "omega": omega, "prior view": view_pi, "posterior view": view_post,
+                    "adopted": (view_post - view_pi) / (q - view_pi) if q != view_pi else 0.0,
+                    "sample": mu, "pi": pd.Series(pi, mu.index),
+                    "post": pd.Series(post, mu.index)})
+        return max_utility(post, cov_bl, DELTA, (0.0, STOCK_CAP), _sectors(mu.index),
+                           SECTOR_CAP)
+    return strategy
+
+
+def _momentum_top(mu, cov, window, top: int = 10):
+    mom = np.log1p(window.fillna(0.0)).iloc[-252:-21].sum()
+    w = pd.Series(0.0, index=mu.index)
+    w[mom.nlargest(top).index] = 1 / top
+    return w.to_numpy()
+
+
+def report_black_litterman(out_dir: Path) -> dict:
+    """Black-Litterman: equal-weight prior plus a momentum view, after costs on ₹10 lakh."""
+    from ef.costs import trade_cost
+    from ef.universe import load_fno, load_lake, members_at
+    from ef.walkforward import walk_forward
+
+    log: list = []
+    strategies = {
+        "equal weight (the prior)": _equal,
+        "Black-Litterman + momentum view": _bl_strategy(log),
+        "momentum, top 10": _momentum_top,
+        "max Sharpe on sample means, capped": lambda mu, cov, w: max_sharpe(
+            mu.to_numpy(), cov.to_numpy(), RF, (0.0, STOCK_CAP), _sectors(mu.index), SECTOR_CAP),
+    }
+    px, turnover = load_lake()
+    fno = load_fno()
+    out = walk_forward(px, lambda day: members_at(turnover, day, 50, eligible=fno), strategies,
+                       WINDOW, cost=lambda b, s_, n: trade_cost(b, s_, n, CAPITAL))
+    nifty = load_nifty().pct_change()
+    rets = out["returns"].assign(NIFTY=nifty.reindex(out["returns"].index))
+    monthly = rets.resample("ME").apply(lambda x: (1 + x).prod() - 1)
+    monthly.rename_axis("date").to_csv(BL_MONTHLY, float_format="%.6f")
+    dd = lambda r: float(((1 + r).cumprod() / (1 + r).cumprod().cummax() - 1).min())  # noqa: E731
+    table = {k: {**stats(rets[k]), "dd": dd(rets[k]),
+                 "turnover": float(out["turnover"][k].median()) if k in out["turnover"] else 0}
+             for k in rets}
+    base = monthly["equal weight (the prior)"]
+    tstat = {k: float((monthly[k] - base).mean() / (monthly[k] - base).std()
+                      * np.sqrt(len(base))) for k in strategies if k != "equal weight (the prior)"}
+    days = list(out["info"].index)
+    lg = pd.DataFrame([{k: v for k, v in e.items() if k not in ("sample", "pi", "post")}
+                       for e in log], index=days)
+
+    last = log[-1]
+    order = last["sample"].sort_values().index
+    fig, ax = plt.subplots(figsize=(9, 4.6))
+    x = np.arange(len(order))
+    ax.plot(x, last["sample"][order] * 100, "o", ms=4, color=plots.MUTED,
+            label="sample mean (past 3 years)")
+    ax.plot(x, last["pi"][order] * 100, color=plots.SERIES[0], lw=6, alpha=0.35,
+            label="prior: implied by equal weight")
+    ax.plot(x, last["post"][order] * 100, color=plots.SERIES[1], lw=1.6,
+            label="posterior: prior + momentum view (almost on top of it)")
+    ax.axhline(0, color=plots.TEXT_2, lw=0.8)
+    ax.set_xticks([])
+    ax.set_xlabel(f"the {len(order)} stocks, sorted by past return ({days[-1]:%b %Y})")
+    ax.set_ylabel("expected return, % a year")
+    ax.legend(loc="upper left", fontsize=9)
+    ax.set_title("Black-Litterman's inputs are calm where sample means are wild")
+    plots.save(fig, out_dir, "bl_returns")
+
+    fig, ax = plt.subplots(figsize=(9, 4.6))
+    ax.plot(lg.index, lg["q"] * 100, color=plots.MUTED, label="view: momentum spread, past 3 years")
+    ax.plot(lg.index, lg["posterior view"] * 100, color=plots.SERIES[1],
+            label="what the posterior kept")
+    ax.axhline(0, color=plots.TEXT_2, lw=0.8)
+    ax.set_ylabel("top-10 minus bottom-10 return, % a year")
+    ax.legend(loc="upper left", fontsize=9)
+    ax.set_title("Black-Litterman kept only a fraction of each month's noisy view")
+    plots.save(fig, out_dir, "bl_view")
+
+    names = [k for k in rets if k != "NIFTY"]
+    colors = dict(zip([*names, "NIFTY"], [plots.SERIES[3], plots.SERIES[1], plots.SERIES[6],
+                                          plots.MUTED, plots.TEXT], strict=True))
+    fig, ax = plt.subplots(figsize=(9, 4.6))
+    for k in [*names, "NIFTY"]:
+        g = (1 + rets[k]).cumprod()
+        ax.plot(g.index, g, color=colors[k], lw=1.2 if k == "NIFTY" else 1.8,
+                label=f"{k}: {table[k]['cagr']:.1%}")
+    ax.set_yscale("log")
+    ax.yaxis.set_major_locator(matplotlib.ticker.FixedLocator([0.75, 1, 1.5, 2, 3, 4]))
+    ax.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(lambda v, _: f"₹{v:g}"))
+    ax.yaxis.set_minor_locator(matplotlib.ticker.NullLocator())
+    ax.set_ylabel("growth of ₹1 after costs (log scale)")
+    ax.legend(loc="upper left", fontsize=8)
+    ax.set_title("A weak view, used with stated confidence, changed little")
+    plots.save(fig, out_dir, "bl_growth")
+
+    return {
+        "net (cagr, vol, sharpe, worst fall, turnover)": {
+            k: (f"{t['cagr']:.1%}", f"{t['vol']:.1%}", round(t["sharpe"], 2), f"{t['dd']:.0%}",
+                f"{t['turnover']:.1%}") for k, t in table.items()},
+        "monthly diff vs equal weight, t": {k: round(v, 2) for k, v in tstat.items()},
+        "view q median / share positive": (f"{lg['q'].median():.1%}",
+                                           round(float((lg['q'] > 0).mean()), 2)),
+        "share of view adopted, median (10-90%)": (
+            round(float(lg["adopted"].median()), 2),
+            [round(float(v), 2) for v in lg["adopted"].quantile([0.1, 0.9])]),
+        "last month: sample mean range / posterior range": (
+            f"{last['sample'].min():.0%} to {last['sample'].max():.0%}",
+            f"{last['post'].min():.0%} to {last['post'].max():.0%}"),
+    }
+
+
 REPORTS = {"frontier": report_frontier, "estimation": report_estimation,
            "covariance": report_covariance, "contest": report_contest,
-           "constraints": report_constraints}
+           "constraints": report_constraints, "black-litterman": report_black_litterman}

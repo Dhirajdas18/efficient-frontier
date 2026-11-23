@@ -17,7 +17,7 @@ rebuilt weekly by GitHub Actions. Hover the frontier to see what each portfolio 
 - [x] Covariance estimation: sample, Ledoit-Wolf shrinkage (constant correlation), EWMA
 - [x] Walk-forward contest after Indian delivery costs: equal weight, inverse volatility (20-day, 1-year), risk parity, minimum variance, maximum Sharpe
 - [x] Constraints: stock and sector caps (the reference model's 15% / 30%), turnover penalty
-- [ ] Black-Litterman: market prior plus views
+- [x] Black-Litterman: equal-weight prior plus a momentum view weighted by its own track record
 - [ ] Asset classes for an Indian investor: equity, gold, debt, US equity
 
 ## Findings
@@ -49,7 +49,7 @@ include stocks that joined because they had risen (BEL, ETERNAL, BSE are among t
 - **What the two optimal portfolios hold (right):** maximum Sharpe concentrates in a handful of
   momentum winners; minimum variance spreads across low-volatility staples and pharma.
 
-### 2. Out of sample, maximum Sharpe promised 2.2 and delivered 0.38; only the risk forecasts held
+### 2. Out of sample, maximum Sharpe promised 2.2 and delivered 0.36; only the risk forecasts held
 
 <a href="docs/img/estimation_promised.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/estimation_promised.png"><img src="docs/img/estimation_promised.gif" alt="Promised (in-sample) vs delivered (next month) Sharpe ratio and volatility for four portfolios" width="720"></picture></a>
 
@@ -60,13 +60,13 @@ included; only results are committed). Before costs.
 
 | | Promised Sharpe | Delivered Sharpe | Delivered return | Delivered volatility | Stocks held |
 |---|---|---|---|---|---|
-| Equal weight | 0.86 | 0.31 | 11.3% | 19.6% | 50 |
-| Minimum variance | 0.80 | **0.42** | 12.0% | 13.9% | 15 |
-| Maximum Sharpe | **2.23** | 0.38 | 13.4% | 23.9% | 8 |
-| Resampled maximum Sharpe | 2.03 | 0.39 | 13.2% | 20.2% | 19 |
-| NIFTY 50 index | | 0.39 | 12.1% | 16.1% | |
+| Equal weight | 0.86 | 0.32 | 11.4% | 19.6% | 50 |
+| Minimum variance | 0.80 | **0.41** | 11.9% | 13.9% | 15 |
+| Maximum Sharpe | **2.23** | 0.36 | 13.1% | 23.8% | 8 |
+| Resampled maximum Sharpe | 2.03 | 0.37 | 12.7% | 20.2% | 19 |
+| NIFTY 50 index | | 0.40 | 12.3% | 16.1% | |
 
-- **Return forecasts collapsed:** maximum Sharpe expected 54% a year on its own data and earned 13.4%.
+- **Return forecasts collapsed:** maximum Sharpe expected 54% a year on its own data and earned 13.1%.
   A stock's past three-year return said nothing about its next month (rank correlation 0.002, t = 0.1):
   with typical stock volatility, a three-year average return has a standard error of 16.6 points a year,
   too wide to tell a 10% stock from a 30% one.
@@ -78,11 +78,11 @@ included; only results are committed). Before costs.
 <td><a href="docs/img/estimation_bootstrap.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/estimation_bootstrap.png"><img src="docs/img/estimation_bootstrap.gif" alt="Range of maximum-Sharpe weights across bootstrap resamples of the same three years"></picture></a></td>
 </tr></table>
 
-- **Everything ended near the index (left):** 11.3% to 13.4% a year against NIFTY's 12.1%, with maximum
+- **Everything ended near the index (left):** 11.4% to 13.1% a year against NIFTY's 12.3%, with maximum
   Sharpe taking the most risk to get there.
 - **The weights are noise (right):** resampling the same three years of data and re-solving, Bharti
   Airtel's maximum-Sharpe weight ranged from 0% to 29%, and was zero in 45% of resamples. Averaging over
-  resamples (Michaud) spread the portfolio from 8 to 19 stocks and cut its volatility from 23.9% to 20.2%
+  resamples (Michaud) spread the portfolio from 8 to 19 stocks and cut its volatility from 23.8% to 20.2%
   for the same return, but couldn't add information the data doesn't have.
 
 ### 3. For long-only minimum variance, how you estimate covariance barely mattered; it matters once shorting is allowed
@@ -125,18 +125,18 @@ drifted. Risk parity and minimum variance use Ledoit-Wolf covariance.
 
 | | Return after costs | Volatility | Worst fall | Turnover a month | Cost a year |
 |---|---|---|---|---|---|
-| Equal weight | 10.4% | 19.6% | −55% | 8% | 0.90% |
-| Inverse volatility, 20 days | 11.7% | 17.9% | −46% | 17% | 1.29% |
-| Inverse volatility, 1 year | 11.8% | 17.9% | −45% | 7% | 0.87% |
-| Risk parity | 11.3% | 17.5% | −45% | 7% | 0.89% |
-| Minimum variance | 11.7% | **13.9%** | **−30%** | 9% | 0.66% |
-| Maximum Sharpe | 12.4% | 23.9% | −45% | 19% | 1.09% |
-| NIFTY 50 index (no costs) | 12.1% | 16.1% | −38% | | |
+| Equal weight | 10.5% | 19.6% | −55% | 8% | 0.91% |
+| Inverse volatility, 20 days | 11.7% | 17.9% | −46% | 17% | 1.31% |
+| Inverse volatility, 1 year | 11.8% | 17.9% | −45% | 7% | 0.88% |
+| Risk parity | 11.3% | 17.5% | −44% | 7% | 0.90% |
+| Minimum variance | 11.5% | **13.8%** | **−30%** | 9% | 0.66% |
+| Maximum Sharpe | 12.0% | 23.8% | −45% | 19% | 1.09% |
+| NIFTY 50 index (no costs) | 12.3% | 16.1% | −38% | | |
 
 - **Returns were a draw:** every scheme ended within 2 points of the others and of NIFTY, and none differed
   from 20-day inverse volatility by more than noise (monthly return differences, |t| < 1).
 - **Risk wasn't:** minimum variance had lower volatility than inverse volatility in all 11 calendar years
-  and fell 30% at worst (March 2020) against 45–55% for the other stock portfolios.
+  and fell 30% at worst (March 2020) against 44–55% for the other stock portfolios.
 
 <table><tr>
 <td><a href="docs/img/contest_costs.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/contest_costs.png"><img src="docs/img/contest_costs.gif" alt="Yearly cost of each scheme split into STT, slippage and DP charges, with monthly turnover"></picture></a></td>
@@ -144,8 +144,8 @@ drifted. Risk parity and minimum variance use Ledoit-Wolf covariance.
 </tr></table>
 
 - **Twenty-day volatility is jumpy, so its weights churn (left):** inverse volatility from 20 days of data
-  traded 17% of the portfolio a month and cost 1.29% a year; from one year of data it gave the same return
-  and risk with 7% turnover and 0.87% cost.
+  traded 17% of the portfolio a month and cost 1.31% a year; from one year of data it gave the same return
+  and risk with 7% turnover and 0.88% cost.
 - **On ₹10 lakh, DP charges cost more than STT** for the 50-stock schemes: about 0.54% a year, because
   every stock trimmed in a month pays ₹15.93. Minimum variance holds about 15 stocks and paid 0.21%.
 - **Minimum variance isn't free (right):** it fell least in 2020, but by late 2026 it sat furthest below
@@ -176,13 +176,49 @@ variance plus λ times the turnover from last month's drifted weights.
 - **Each scheme leans on different industries (right):** minimum variance held 24% in consumer staples on
   average (largest industry in 75 of 130 months), inverse volatility 27% in financials.
 
+### 6. Black-Litterman kept 6% of a weak momentum view; buying momentum outright did worse after costs
+
+<a href="docs/img/bl_returns.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/bl_returns.png"><img src="docs/img/bl_returns.gif" alt="Sample mean returns against Black-Litterman prior and posterior expected returns for each stock" width="720"></picture></a>
+
+Black-Litterman replaces noisy sample means with a neutral starting point and lets views move it only as far
+as their confidence allows. The starting point here is the returns that would make an investor hold the
+equal-weight portfolio (market caps aren't available point in time in this data, so equal weight stands in
+for the market portfolio; risk aversion 2.5, τ 0.05). The view is 12-1 momentum: the 10 stocks with the
+best return over the past year, skipping the last month, beat the 10 worst. Its size is the average
+top-minus-bottom spread over the previous three years, and its confidence the uncertainty of that average.
+Same walk-forward, caps and costs as sections 4–5.
+
+- **Calm inputs (above):** in November 2026 the past three years' sample means ranged from −12% to +84% a
+  year; Black-Litterman's expected returns ranged from 3% to 13%.
+- **The view was weak:** across the whole period, momentum ranked next month's returns at 0.025 (t = 1.15),
+  a top-minus-bottom spread of 8.2% a year (t = 1.06). With three years of noisy evidence behind it, the
+  posterior kept a median 6% of each month's view (4% to 11%).
+
+<table><tr>
+<td><a href="docs/img/bl_view.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/bl_view.png"><img src="docs/img/bl_view.gif" alt="Momentum view from the past three years against the part the posterior kept, each month"></picture></a></td>
+<td><a href="docs/img/bl_growth.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/bl_growth.png"><img src="docs/img/bl_growth.gif" alt="Growth of one rupee after costs: equal weight, Black-Litterman, momentum top 10, capped maximum Sharpe and NIFTY"></picture></a></td>
+</tr></table>
+
+| After costs | Return | Volatility | Worst fall | Turnover a month |
+|---|---|---|---|---|
+| Equal weight (the prior) | 10.5% | 19.6% | −55% | 8% |
+| Black-Litterman + momentum view | 11.2% | 19.3% | −46% | 13% |
+| Momentum, top 10 stocks | 8.5% | 25.0% | −51% | 31% |
+| Maximum Sharpe on sample means, capped | 13.6% | 20.1% | −36% | 19% |
+| NIFTY 50 index (no costs) | 12.3% | 16.1% | −38% | |
+
+- **Used with stated confidence, the view changed little:** Black-Litterman ended within noise of its
+  equal-weight starting point (monthly t = 0.29).
+- **Used outright, it cost money:** the 10 momentum stocks turned over 31% a month and returned 8.5% after
+  costs, the lowest here. None of the differences from equal weight beat noise (|t| ≤ 0.63).
+
 ## Quick start
 
 ```bash
 uv sync
 uv run python scripts/fetch_data.py         # Yahoo Finance -> data/prices.parquet
 uv run ef report frontier                   # charts -> out/
-EF_LAKE_DIR=/path/to/lake uv run ef report estimation   # also: covariance, contest, constraints; needs a local NSE bhavcopy lake
+EF_LAKE_DIR=/path/to/lake uv run ef report estimation   # also: covariance, contest, constraints, black-litterman; needs a local NSE bhavcopy lake
 uv run python scripts/build_site.py         # dashboard -> site/index.html
 uv run pytest
 ```
@@ -197,6 +233,8 @@ uv run pytest
   list; `scripts/fetch_constituents.py` refreshes it). Returns on days Yahoo failed to adjust for a
   corporate action are set to zero (`docs/data/yahoo_fixes.csv`, with sources).
 - `src/ef/costs.py`: Indian equity-delivery costs (STT, stamp, exchange, SEBI, GST, DP charge, slippage).
+- `src/ef/black_litterman.py`: implied returns, the posterior, and a momentum view sized and weighted
+  from the estimation window.
 - `src/ef/covariance.py`: sample, Ledoit-Wolf (constant-correlation target) and EWMA covariance.
 - `src/ef/universe.py`, `walkforward.py`: point-in-time universe from a local NSE bhavcopy lake
   (50 most-traded F&O stocks before each date) and a monthly walk-forward engine (past data only,

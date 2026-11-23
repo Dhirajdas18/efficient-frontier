@@ -73,3 +73,14 @@ def load_fno(lake_dir: str | Path | None = None) -> pd.DataFrame:
     return p.assign(fno=p["fut_oi"].notna()).pivot_table(index="date", columns="symbol",
                                                          values="fno", aggfunc="any",
                                                          fill_value=False)
+
+
+def load_nifty(lake_dir: str | Path | None = None) -> pd.Series:
+    """NIFTY 50 closing level for every day in the lake (NSE's daily index files), so a
+    benchmark never forces trading days to be dropped."""
+    lake_dir = Path(lake_dir or os.environ.get("EF_LAKE_DIR", ""))
+    frames = [pd.read_parquet(f, columns=["date", "index", "close"])
+              for f in sorted((lake_dir / "index").glob("*.parquet"))]
+    x = pd.concat(frames)
+    x = x[x["index"].str.upper().str.replace(" ", "") == "NIFTY50"]
+    return x.set_index(pd.to_datetime(x["date"]))["close"].sort_index().rename("NIFTY")

@@ -74,3 +74,15 @@ def test_members_can_be_limited_to_stocks_with_fno_contracts_the_day_before():
     fno.loc[idx[-1], "NEW"] = True  # becomes eligible only on the rebalance day itself
     assert members_at(turnover, idx[-1], 2, eligible=fno) == ["BIG"]
     assert members_at(turnover, idx[-1], 2) == ["SMALLCAP", "NEW"]
+
+
+def test_load_nifty_reads_the_lakes_index_files(tmp_path):
+    from ef.universe import load_nifty
+
+    (tmp_path / "index").mkdir()
+    for d, close in (("2024-01-01", 100.0), ("2024-01-02", 101.0)):
+        pd.DataFrame({"date": [pd.Timestamp(d)] * 2, "index": ["Nifty 50", "Nifty Bank"],
+                      "open": 0.0, "high": 0.0, "low": 0.0, "close": [close, 5.0]}) \
+            .to_parquet(tmp_path / "index" / f"{d}.parquet")
+    s = load_nifty(tmp_path)
+    assert list(s) == [100.0, 101.0] and s.index[0] == pd.Timestamp("2024-01-01")

@@ -131,6 +131,14 @@ def constraints_figure(_r) -> go.Figure:
                                         plots.SERIES[0]])
 
 
+def black_litterman_figure(_r) -> go.Figure:
+    """Growth of ₹1 after costs: prior, Black-Litterman, pure momentum (docs/data)."""
+    from ef.reports import BL_MONTHLY
+
+    return _growth_figure(BL_MONTHLY, [plots.SERIES[3], plots.SERIES[1], plots.SERIES[6],
+                                       plots.MUTED, plots.TEXT])
+
+
 def shrinkage_figure(_r) -> go.Figure:
     """Ledoit-Wolf shrinkage intensity at each monthly rebalance (docs/data)."""
     from ef.reports import SHRINKAGE
@@ -159,7 +167,7 @@ SECTIONS = [
      "Each month since February 2016, every portfolio is rebuilt from the previous three years "
      "only, using the 50 most-traded stocks with F&O contracts at the time (no hindsight about "
      "index membership), then held for the month. Maximum Sharpe promised a Sharpe ratio of 2.2 "
-     "and delivered 0.38; all of them ended near NIFTY.",
+     "and delivered 0.36; all of them ended near NIFTY.",
      estimation_figure),
     ("Covariance estimation",
      "How far Ledoit-Wolf shrinkage pulled each month's sample covariance toward a "
@@ -179,6 +187,13 @@ SECTIONS = [
      "turnover penalty cut minimum variance's trading by three quarters at the same risk, saving "
      "0.45% a year in costs.",
      constraints_figure),
+    ("Black-Litterman",
+     "Black-Litterman starts from the returns that justify holding the equal-weight portfolio and "
+     "blends in a view, here 12-1 momentum, sized and weighted by its own three-year track record. "
+     "It kept about 6% of each month's view and ended within noise of equal weight; buying the "
+     "momentum stocks outright returned 8.5% a year after costs, the lowest here, with 31% "
+     "turnover a month.",
+     black_litterman_figure),
 ]
 
 
