@@ -57,3 +57,35 @@ def test_capped_frontier_respects_the_cap_and_tops_out_correctly():
     pts = frontier(MU, COV, n=8, bounds=(0.0, 0.4))
     assert all((p["weights"] <= 0.4 + 1e-7).all() for p in pts)
     assert pts[-1]["ret"] == pytest.approx(0.4 * 0.18 + 0.4 * 0.14 + 0.2 * 0.12, abs=1e-6)
+
+
+def test_resampled_max_sharpe_averages_bootstrap_weights():
+    from ef.frontier import resampled_max_sharpe
+
+    rng = np.random.default_rng(4)
+    daily = rng.multivariate_normal(MU / 252, COV / 252, 750)
+    w = resampled_max_sharpe(daily, rf=0.065, n_boot=20, seed=1)
+    assert w.sum() == pytest.approx(1) and (w >= -1e-9).all()
+    assert (w > 0.01).sum() >= (max_sharpe(daily.mean(0) * 252, np.cov(daily.T) * 252,
+                                           0.065) > 0.01).sum()  # spreads, never concentrates more
+
+
+def test_max_sharpe_with_no_stock_above_the_risk_free_rate_is_min_variance():
+    np.testing.assert_allclose(max_sharpe(MU - 0.5, COV, rf=0.065), min_variance(COV), atol=1e-5)
+
+
+def test_max_sharpe_respects_a_cap():
+    w = max_sharpe(MU, COV, rf=0.065, bounds=(0.0, 0.3))
+    assert (w <= 0.3 + 1e-7).all() and w.sum() == pytest.approx(1)
+
+
+def test_max_sharpe_survives_awkward_bootstrap_samples():
+    rng = np.random.default_rng(11)
+    n = 40
+    vol = rng.uniform(0.15, 0.5, n)
+    corr = 0.3 + 0.7 * np.eye(n)
+    cov = np.outer(vol, vol) * corr
+    for seed in range(30):
+        mu = np.random.default_rng(seed).normal(0.05, 0.3, n)
+        w = max_sharpe(mu, cov, rf=0.065)
+        assert w.sum() == pytest.approx(1) and (w >= -1e-8).all()

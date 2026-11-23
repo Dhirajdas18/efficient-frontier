@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -123,4 +124,159 @@ def report_frontier(out_dir: Path) -> dict:
     }
 
 
-REPORTS = {"frontier": report_frontier}
+ESTIMATION = Path("docs/data/estimation_monthly.csv")  # monthly strategy returns, committed
+WINDOW = 756  # three years of trading days
+
+
+def _equal(mu, cov, window):
+    return np.full(len(mu), 1 / len(mu))
+
+
+def _min_var(mu, cov, window):
+    return min_variance(cov.to_numpy())
+
+
+def _max_sharpe(mu, cov, window):
+    return max_sharpe(mu.to_numpy(), cov.to_numpy(), RF)
+
+
+def _resampled(mu, cov, window):
+    from ef.frontier import resampled_max_sharpe
+
+    return resampled_max_sharpe(window.fillna(0.0).to_numpy(), RF, n_boot=20, seed=0)
+
+
+def lake_walk(strategies: dict, lookback: int = WINDOW) -> tuple[dict, pd.DataFrame]:
+    """Walk forward over the point-in-time universe from the lake: the 50 most-traded stocks
+    among those with F&O contracts the day before each rebalance."""
+    from ef.universe import load_fno, load_lake, members_at
+    from ef.walkforward import walk_forward
+
+    px, turnover = load_lake()
+    fno = load_fno()
+    out = walk_forward(px, lambda day: members_at(turnover, day, 50, eligible=fno), strategies,
+                       lookback)
+    return out, px
+
+
+def stats(r: pd.Series) -> dict:
+    """Annualised compound return, volatility and Sharpe of daily returns."""
+    vol = float(r.std() * np.sqrt(TRADING_DAYS))
+    cagr = float((1 + r).prod() ** (TRADING_DAYS / len(r)) - 1)
+    return {"cagr": cagr, "vol": vol, "sharpe": float((r.mean() * TRADING_DAYS - RF) / vol)}
+
+
+def report_estimation(out_dir: Path) -> dict:
+    """Estimation error: portfolios picked on the past three years, scored on the next month."""
+    from scipy.stats import spearmanr
+
+    from ef.data import DATA_PATH
+
+    strategies = {"equal weight": _equal, "min variance": _min_var, "max Sharpe": _max_sharpe,
+                  "resampled max Sharpe": _resampled}
+    out, px = lake_walk(strategies)
+    rets, info = out["returns"], out["info"]
+    nifty = daily_returns(pd.read_parquet(DATA_PATH)["adj_close"][[INDEX]])[INDEX]
+    rets = rets.assign(NIFTY=nifty.reindex(rets.index)).dropna()
+    monthly = rets.resample("ME").apply(lambda x: (1 + x).prod() - 1)
+    monthly.index.name = "date"
+    monthly.to_csv(ESTIMATION, float_format="%.6f")
+    real = {k: stats(rets[k]) for k in rets}
+    pred = {k: {"ret": float(info[f"{k}_ret"].mean()), "vol": float(info[f"{k}_vol"].mean()),
+                "sharpe": float(((info[f"{k}_ret"] - RF) / info[f"{k}_vol"]).mean())}
+            for k in strategies}
+
+    # does a stock's past three-year return rank next month's? (cross-sectional rank IC)
+    r_all = px.pct_change(fill_method=None)
+    days = list(info.index)
+    ics = []
+    for a, b in zip(days, days[1:], strict=False):
+        w = out["weights"]["equal weight"][a]
+        i = px.index.get_loc(a)
+        past = r_all.iloc[i - WINDOW:i][w.index].mean()
+        nxt = (1 + r_all.loc[a:b].iloc[:-1][w.index].fillna(0)).prod() - 1
+        ics.append(spearmanr(past, nxt).statistic)
+    ics = np.array(ics)
+
+    names = list(strategies)
+    fig, (a1, a2) = plt.subplots(1, 2, figsize=(9, 4.6))
+    xs = np.arange(len(names))
+    for ax, key, label in ((a1, "sharpe", "Sharpe ratio"), (a2, "vol", "volatility, %")):
+        k = 100 if key == "vol" else 1
+        ax.bar(xs - 0.2, [pred[n][key] * k for n in names], 0.38, color=plots.MUTED,
+               label="promised (in-sample)")
+        ax.bar(xs + 0.2, [real[n][key] * k for n in names], 0.38, color=plots.SERIES[0],
+               label="delivered (next month)")
+        ax.set_xticks(xs, [n.replace(" ", "\n", 1) for n in names], fontsize=8)
+        ax.set_title(label, fontsize=10, fontweight="normal", color=plots.TEXT_2)
+        ax.grid(axis="x", visible=False)
+    a1.set_ylim(0, max(pred[n]["sharpe"] for n in names) * 1.3)
+    a1.legend(loc="upper left", fontsize=8)
+    fig.suptitle("Risk forecasts held up; return forecasts collapsed", x=0.06, ha="left",
+                 fontsize=13, fontweight="semibold", color=plots.TEXT)
+    plots.save(fig, out_dir, "estimation_promised")
+
+    fig, ax = plt.subplots(figsize=(9, 4.6))
+    colors = dict(zip([*names, "NIFTY"], [plots.SERIES[3], plots.SERIES[2], plots.SERIES[1],
+                                          plots.SERIES[6], plots.TEXT], strict=True))
+    for k in [*names, "NIFTY"]:
+        g = (1 + rets[k]).cumprod()
+        ax.plot(g.index, g, color=colors[k], lw=2 if k != "NIFTY" else 1.2,
+                label=f"{k}: {real[k]['cagr']:.1%} a year")
+    ax.set_yscale("log")
+    ax.yaxis.set_major_locator(matplotlib.ticker.FixedLocator([0.75, 1, 1.5, 2, 3, 4]))
+    ax.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(lambda v, _: f"₹{v:g}"))
+    ax.yaxis.set_minor_locator(matplotlib.ticker.NullLocator())
+    ax.set_ylabel("growth of ₹1 (log scale, before costs)")
+    ax.legend(loc="upper left", fontsize=9)
+    ax.set_title("Out of sample, every portfolio ended near the index, far from its promise")
+    plots.save(fig, out_dir, "estimation_growth")
+
+    last = days[-1]
+    i = px.index.get_loc(last)
+    w_last = out["weights"]["max Sharpe"][last]
+    window = r_all.iloc[i - WINDOW:i][w_last.index].fillna(0.0).to_numpy()
+    rng = np.random.default_rng(0)
+    boots = []
+    for _ in range(200):
+        sample = window[rng.integers(0, len(window), len(window))]
+        boots.append(max_sharpe(sample.mean(0) * TRADING_DAYS, np.cov(sample.T) * TRADING_DAYS, RF))
+    boots = pd.DataFrame(boots, columns=w_last.index)
+    top = w_last.nlargest(8).index
+    fig, ax = plt.subplots(figsize=(9, 4.6))
+    y = np.arange(len(top))[::-1]
+    lo, hi = boots[top].quantile(0.1) * 100, boots[top].quantile(0.9) * 100
+    ax.hlines(y, lo, hi, color=plots.SERIES[0], lw=6, alpha=0.35, label="10–90% of resamples")
+    ax.plot(w_last[top] * 100, y, "o", color=plots.SERIES[1], label="weight on the actual data")
+    ax.set_yticks(y, top, fontsize=9)
+    ax.set_xlabel("max-Sharpe weight, %")
+    ax.legend(loc="lower right", fontsize=9)
+    ax.grid(axis="y", visible=False)
+    ax.set_title(f"Resample the same three years and the {last:%b %Y} weights swing wildly")
+    plots.save(fig, out_dir, "estimation_bootstrap")
+
+    held = {k: float(np.median([(w > 0.01).sum() for w in out["weights"][k].values()]))
+            for k in strategies}
+    window_df = r_all.iloc[i - WINDOW:i][w_last.index]
+    se = float((window_df.std() * np.sqrt(TRADING_DAYS) / np.sqrt(WINDOW / TRADING_DAYS))
+               .median())
+    return {
+        "rebalances": f"{len(days)} ({days[0]:%Y-%m} to {days[-1]:%Y-%m}); "
+                      f"median members {int(info['n'].median())}",
+        "promised (ret, vol, sharpe)": {k: tuple(round(v, 3) for v in pred[k].values())
+                                        for k in pred},
+        "delivered (cagr, vol, sharpe)": {k: tuple(round(v, 3) for v in real[k].values())
+                                          for k in real},
+        "stocks held >1% (median)": held,
+        "past-3y-return rank IC on next month: mean / t / share>0":
+            (round(float(ics.mean()), 3), round(float(ics.mean() / ics.std() * np.sqrt(len(ics))),
+                                                2), round(float((ics > 0).mean()), 2)),
+        "std error of a 3y annual mean return, median stock": f"{se:.1%}",
+        "bootstrap: top weight 10-90%": {s: f"{lo[s]:.0f}-{hi[s]:.0f}% (actual "
+                                            f"{w_last[s]:.0%})" for s in top[:4]},
+        "bootstrap: share of resamples where each top-8 stock gets 0":
+            {s: round(float((boots[s] < 0.001).mean()), 2) for s in top},
+    }
+
+
+REPORTS = {"frontier": report_frontier, "estimation": report_estimation}

@@ -30,9 +30,31 @@ def min_variance(cov, bounds=(0.0, 1.0)) -> np.ndarray:
 
 
 def max_sharpe(mu, cov, rf: float = 0.0, bounds=(0.0, 1.0)) -> np.ndarray:
-    """The tangency portfolio: highest (return - rf) / volatility."""
+    """The tangency portfolio: highest (return - rf) / volatility, long-only.
+
+    Solved as the convex problem: minimise y'Σy subject to (mu - rf)'y = 1, y >= 0, then
+    w = y / sum(y); a cap c becomes y_i <= c * sum(y). If no stock beats rf there is no positive
+    Sharpe to maximise, and the minimum-variance portfolio is returned.
+    """
     mu, cov = np.asarray(mu, dtype=float), np.asarray(cov, dtype=float)
-    return _solve(lambda w: -(w @ mu - rf) / np.sqrt(w @ cov @ w), len(mu), bounds)
+    excess = mu - rf
+    if bounds[0] < 0:
+        raise ValueError("max_sharpe is long-only")
+    if (excess <= 0).all():
+        return min_variance(cov, bounds)
+    n, cap = len(mu), bounds[1]
+    scale = float(np.mean(np.diag(cov)))  # keep the objective near 1 for the solver
+    cons = [{"type": "eq", "fun": lambda y: excess @ y - 1}]
+    if cap < 1:
+        cons.append({"type": "ineq", "fun": lambda y: cap * y.sum() - y})
+    y0 = np.where(excess > 0, excess, 0.0)
+    y0 /= excess @ y0
+    res = minimize(lambda y: y @ cov @ y / scale, y0, method="SLSQP", bounds=[(0.0, None)] * n,
+                   constraints=cons, options={"ftol": 1e-14, "maxiter": 2000})
+    y = np.clip(res.x, 0.0, None)
+    if not np.isfinite(y).all() or y.sum() <= 0 or abs(excess @ y - 1) > 1e-4:
+        raise RuntimeError(f"optimiser failed: {res.message}")
+    return y / y.sum()
 
 
 def frontier(mu, cov, n: int = 50, bounds=(0.0, 1.0)) -> list[dict]:
@@ -49,3 +71,16 @@ def frontier(mu, cov, n: int = 50, bounds=(0.0, 1.0)) -> list[dict]:
         r, v = port_stats(x, mu, cov)
         out.append({"ret": r, "vol": v, "weights": x})
     return out
+
+
+def resampled_max_sharpe(daily, rf: float = 0.0, n_boot: int = 50, seed=None,
+                         bounds=(0.0, 1.0), periods: int = 252) -> np.ndarray:
+    """Michaud-style resampling: re-estimate means and covariance on bootstrap resamples of the
+    daily return rows, solve max Sharpe on each, and average the weights."""
+    daily = np.asarray(daily, dtype=float)
+    rng = np.random.default_rng(seed)
+    out = np.zeros(daily.shape[1])
+    for _ in range(n_boot):
+        sample = daily[rng.integers(0, len(daily), len(daily))]
+        out += max_sharpe(sample.mean(0) * periods, np.cov(sample.T) * periods, rf, bounds)
+    return out / n_boot

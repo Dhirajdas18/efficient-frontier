@@ -20,6 +20,30 @@ ICON = (
     "%3C/svg%3E"
 )
 
+def _layout(fig: go.Figure, ytitle: str) -> go.Figure:
+    fig.update_layout(
+        paper_bgcolor=plots.SURFACE,
+        plot_bgcolor=plots.SURFACE,
+        font=dict(family=FONT, color=plots.TEXT_2, size=13),
+        hovermode="x unified",
+        margin=dict(l=56, r=24, t=96, b=40),
+        legend=dict(orientation="h", y=1.02, yanchor="bottom", x=0, xanchor="left"),
+        yaxis=dict(title=ytitle, gridcolor=plots.GRID, zeroline=False, automargin=True),
+        xaxis=dict(
+            gridcolor=plots.GRID,
+            rangeslider=dict(visible=False),
+            rangeselector=dict(
+                buttons=[dict(count=n, label=f"{n}y", step="year", stepmode="backward")
+                         for n in (1, 3, 5)] + [dict(step="all", label="All")],
+                x=1, xanchor="right", y=1.08, yanchor="bottom", bgcolor="white",
+            ),
+        ),
+    )
+    end = max(pd.Timestamp(max(t.x)) for t in fig.data)
+    fig.update_xaxes(range=[end - pd.DateOffset(years=3), end])  # open on the last 3 years
+    return fig
+
+
 def _scatter_layout(fig: go.Figure, xtitle: str, ytitle: str) -> go.Figure:
     fig.update_layout(
         paper_bgcolor=plots.SURFACE, plot_bgcolor=plots.SURFACE,
@@ -68,6 +92,24 @@ def frontier_figure(r: pd.DataFrame) -> go.Figure:
     return _scatter_layout(fig, "volatility, % a year", "return, % a year")
 
 
+def estimation_figure(_r) -> go.Figure:
+    """Growth of ₹1 out of sample, from docs/data/estimation_monthly.csv (month-end returns)."""
+    from ef.reports import ESTIMATION
+
+    m = pd.read_csv(ESTIMATION, index_col="date", parse_dates=["date"])
+    colors = [plots.SERIES[3], plots.SERIES[2], plots.SERIES[1], plots.SERIES[6], plots.TEXT]
+    fig = go.Figure()
+    x = list(m.index.strftime("%Y-%m-%d"))
+    for col, color in zip(m.columns, colors, strict=True):
+        fig.add_scatter(x=x, y=(1 + m[col]).cumprod().round(3).tolist(), name=col, mode="lines",
+                        line=dict(color=color, width=2 if col != "NIFTY" else 1.4),
+                        hovertemplate=f"{col}: ₹%{{y:.2f}}<extra></extra>")
+    fig = _layout(fig, "growth of ₹1, before costs")
+    fig.update_yaxes(type="log", autorange=True)
+    fig.update_xaxes(range=None, autorange=True)
+    return fig
+
+
 SECTIONS = [
     ("The efficient frontier",
      "Every NIFTY 50 stock (grey) and the long-only efficient frontier built from them, using the "
@@ -75,6 +117,12 @@ SECTIONS = [
      "looks back with perfect hindsight and uses today's index members: the next sections test "
      "what holds up out of sample.",
      frontier_figure),
+    ("Out of sample",
+     "Each month since February 2016, every portfolio is rebuilt from the previous three years "
+     "only, using the 50 most-traded stocks with F&O contracts at the time (no hindsight about "
+     "index membership), then held for the month. Maximum Sharpe promised a Sharpe ratio of 2.2 "
+     "and delivered 0.38; all of them ended near NIFTY.",
+     estimation_figure),
 ]
 
 
