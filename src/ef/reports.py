@@ -801,6 +801,132 @@ def report_black_litterman(out_dir: Path) -> dict:
     }
 
 
+ASSET_MIXES = Path("docs/data/asset_mixes.csv")  # results only (return, risk), for the site
+
+
+def _fixed(weights: dict):
+    def strategy(mu, cov, window):
+        return np.array([weights.get(name, 0.0) for name in mu.index])
+    return strategy
+
+
+def report_assets(out_dir: Path) -> dict:
+    """NIFTY, gold, government bonds and US equity for a rupee investor, Aug 2016 onwards."""
+    from ef.assets import ASSETS_PATH, CLASSES, combine, fetch_yahoo, load_lake_indices
+    from ef.costs import trade_cost
+    from ef.walkforward import walk_forward
+
+    if ASSETS_PATH.exists():
+        yahoo = pd.read_parquet(ASSETS_PATH)
+    else:
+        yahoo = fetch_yahoo()
+        ASSETS_PATH.parent.mkdir(exist_ok=True)
+        yahoo.to_parquet(ASSETS_PATH)
+    px = combine(yahoo, load_lake_indices())
+    rf = float((px["cash"].iloc[-1] / px["cash"].iloc[0])
+               ** (365.25 / (px.index[-1] - px.index[0]).days) - 1)
+    weekly = px.resample("W-FRI").last().pct_change().dropna()
+    yrs = (px.index[-1] - px.index[0]).days / 365.25
+    cagr = lambda s: float((s.iloc[-1] / s.iloc[0]) ** (1 / yrs) - 1)  # noqa: E731
+    assets = {c: {"cagr": cagr(px[c]), "vol": float(weekly[c].std() * np.sqrt(52)),
+                  "dd": float((px[c] / px[c].cummax() - 1).min())}
+              for c in [*CLASSES, "S&P 500 (USD)", "USDINR", "cash"]}
+    corr = weekly[[*CLASSES, "USDINR"]].corr()
+
+    mixes = {
+        "NIFTY only": _fixed({"NIFTY 50": 1.0}),
+        "60/40 NIFTY / bonds": _fixed({"NIFTY 50": 0.6, "government bonds": 0.4}),
+        "60/20/20 NIFTY / bonds / gold": _fixed({"NIFTY 50": 0.6, "government bonds": 0.2,
+                                                 "gold": 0.2}),
+        "equal, all four": _equal,
+        "risk parity, all four": lambda mu, cov, w: risk_parity(cov.to_numpy()),
+        "min variance, all four": lambda mu, cov, w: min_variance(cov.to_numpy()),
+        "max Sharpe, all four": lambda mu, cov, w: max_sharpe(mu.to_numpy(), cov.to_numpy(), rf),
+    }
+    out = walk_forward(px[CLASSES], lambda day: list(CLASSES), mixes, TRADING_DAYS,
+                       cost=lambda b, s_, n: trade_cost(b, s_, n, CAPITAL))
+    rets = out["returns"]
+    dd = lambda r: float(((1 + r).cumprod() / (1 + r).cumprod().cummax() - 1).min())  # noqa: E731
+    table = {k: {**stats(rets[k]), "dd": dd(rets[k])} for k in mixes}
+    for k in table:
+        table[k]["sharpe"] = (table[k]["cagr"] - rf) / table[k]["vol"]
+    avg_w = {k: pd.DataFrame(out["weights"][k]).T.mean() for k in
+             ("risk parity, all four", "min variance, all four", "max Sharpe, all four")}
+    pd.DataFrame(table).T.rename_axis("mix")[["cagr", "vol", "sharpe", "dd"]].to_csv(
+        ASSET_MIXES, float_format="%.4f")
+
+    colors = dict(zip([*CLASSES, "cash"], [plots.SERIES[0], plots.SERIES[3], plots.SERIES[2],
+                                           plots.SERIES[1], plots.MUTED], strict=True))
+    fig, ax = plt.subplots(figsize=(9, 4.6))
+    for c in [*CLASSES, "cash"]:
+        g = px[c] / px[c].iloc[0]
+        ax.plot(g.index, g, color=colors[c], lw=1.2 if c == "cash" else 1.8,
+                label=f"{c}: {assets[c]['cagr']:.1%} a year")
+    ax.set_yscale("log")
+    ax.yaxis.set_major_locator(matplotlib.ticker.FixedLocator([1, 1.5, 2, 3, 4, 5]))
+    ax.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(lambda v, _: f"₹{v:g}"))
+    ax.yaxis.set_minor_locator(matplotlib.ticker.NullLocator())
+    ax.set_ylabel("growth of ₹1 (log scale)")
+    ax.legend(loc="upper left", fontsize=9)
+    ax.set_title("Four asset classes in rupees, Aug 2016 to Nov 2026")
+    plots.save(fig, out_dir, "assets_growth")
+
+    fig, ax = plt.subplots(figsize=(6.4, 5))
+    labels = [*CLASSES, "USD/INR"]
+    im = ax.imshow(corr.to_numpy(), cmap=matplotlib.colors.LinearSegmentedColormap.from_list(
+        "div", [plots.SERIES[1], plots.SURFACE, plots.SERIES[0]]), vmin=-1, vmax=1)
+    for i in range(len(labels)):
+        for j in range(len(labels)):
+            ax.text(j, i, f"{corr.iloc[i, j]:.2f}", ha="center", va="center", fontsize=9)
+    ax.set_xticks(range(len(labels)), labels, rotation=30, ha="right", fontsize=9)
+    ax.set_yticks(range(len(labels)), labels, fontsize=9)
+    ax.grid(False)
+    fig.colorbar(im, ax=ax, shrink=0.8, label="correlation of weekly returns")
+    ax.set_title("Gold and bonds barely moved with NIFTY; the dollar rose when NIFTY fell")
+    plots.save(fig, out_dir, "assets_correlation")
+
+    fig, ax = plt.subplots(figsize=(9, 5))
+    mix_colors = [plots.TEXT, plots.SERIES[2], plots.SERIES[3], plots.SERIES[4],
+                  plots.SERIES[6], plots.SERIES[0], plots.SERIES[1]]
+    for (k, t), color in zip(table.items(), mix_colors, strict=True):
+        ax.plot(t["vol"] * 100, t["cagr"] * 100, "o", ms=9, color=color,
+                markeredgecolor=plots.SURFACE, label=f"{k} (worst fall {t['dd']:.0%})")
+    ax.set_xlim(0, None)
+    ax.set_xlabel("volatility, % a year")
+    ax.set_ylabel("return after costs, % a year")
+    ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.14), ncol=2, fontsize=8, frameon=False)
+    ax.set_title("Adding gold and bonds to NIFTY cut risk more than return (Jul 2017 on)")
+    plots.save(fig, out_dir, "assets_mixes")
+
+    us_usd = px["S&P 500 (USD)"] / px["S&P 500 (USD)"].iloc[0]
+    us_inr = px["US equity (INR)"] / px["US equity (INR)"].iloc[0]
+    fig, ax = plt.subplots(figsize=(9, 4.6))
+    ax.plot(us_usd.index, us_usd, color=plots.MUTED, label=f"in dollars: "
+            f"{assets['S&P 500 (USD)']['cagr']:.1%} a year")
+    ax.plot(us_inr.index, us_inr, color=plots.SERIES[1], label=f"in rupees: "
+            f"{assets['US equity (INR)']['cagr']:.1%} a year")
+    ax.set_ylabel("growth of 1 unit, S&P 500 with dividends")
+    ax.legend(loc="upper left", fontsize=9)
+    ax.set_title(f"The rupee's fall added {assets['USDINR']['cagr']:.1%} a year to US shares")
+    plots.save(fig, out_dir, "assets_rupee")
+
+    a, b = "2020-02-19", "2020-03-23"
+    covid = (px.loc[b] / px.loc[a] - 1)[[*CLASSES, "S&P 500 (USD)", "USDINR"]]
+    return {
+        "window": f"{px.index[0]:%Y-%m-%d} to {px.index[-1]:%Y-%m-%d}; cash {rf:.1%}",
+        "assets (cagr, vol, worst fall)": {k: (f"{v['cagr']:.1%}", f"{v['vol']:.1%}",
+                                               f"{v['dd']:.0%}") for k, v in assets.items()},
+        "weekly correlations with NIFTY": corr["NIFTY 50"].round(2).to_dict(),
+        "mixes after costs (cagr, vol, sharpe vs cash, worst fall)": {
+            k: (f"{t['cagr']:.1%}", f"{t['vol']:.1%}", round(t["sharpe"], 2), f"{t['dd']:.0%}")
+            for k, t in table.items()},
+        "average weights": {k: {c: f"{v:.0%}" for c, v in w.items()} for k, w in avg_w.items()},
+        "first rebalance": f"{min(out['weights']['NIFTY only']):%Y-%m-%d}",
+        "covid fall 19 Feb - 23 Mar 2020": {k: f"{v:.1%}" for k, v in covid.items()},
+    }
+
+
 REPORTS = {"frontier": report_frontier, "estimation": report_estimation,
            "covariance": report_covariance, "contest": report_contest,
-           "constraints": report_constraints, "black-litterman": report_black_litterman}
+           "constraints": report_constraints, "black-litterman": report_black_litterman,
+           "assets": report_assets}

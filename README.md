@@ -18,7 +18,7 @@ rebuilt weekly by GitHub Actions. Hover the frontier to see what each portfolio 
 - [x] Walk-forward contest after Indian delivery costs: equal weight, inverse volatility (20-day, 1-year), risk parity, minimum variance, maximum Sharpe
 - [x] Constraints: stock and sector caps (the reference model's 15% / 30%), turnover penalty
 - [x] Black-Litterman: equal-weight prior plus a momentum view weighted by its own track record
-- [ ] Asset classes for an Indian investor: equity, gold, debt, US equity
+- [x] Asset classes for an Indian investor: NIFTY, gold, government bonds, US equity in rupees
 
 ## Findings
 
@@ -212,13 +212,58 @@ Same walk-forward, caps and costs as sections 4–5.
 - **Used outright, it cost money:** the 10 momentum stocks turned over 31% a month and returned 8.5% after
   costs, the lowest here. None of the differences from equal weight beat noise (|t| ≤ 0.63).
 
+### 7. For a rupee investor, mixing in gold and bonds cut NIFTY's risk far more than its return
+
+<a href="docs/img/assets_mixes.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/assets_mixes.png"><img src="docs/img/assets_mixes.gif" alt="Return after costs against volatility for simple mixes of NIFTY, gold, government bonds and US equity" width="720"></picture></a>
+
+Four asset classes in rupees, June 2016 to November 2026: NIFTY 50 (NIFTYBEES ETF, with dividends), gold
+(GOLDBEES ETF), government bonds (NSE's Composite G-Sec total-return index) and US shares (S&P 500 with
+dividends, converted at USD/INR); cash is NSE's overnight-rate index (5.4% a year). Mixes are rebalanced
+monthly from July 2017, with optimisers estimating from the previous year only and the same costs as
+section 4 (applied to every class, which slightly overstates costs for gold and bonds). Before tax.
+
+| Asset | Return | Volatility | Worst fall | Correlation with NIFTY (weekly) |
+|---|---|---|---|---|
+| NIFTY 50 | 12.6% | 14.7% | −36% | 1 |
+| Gold | 13.8% | 13.9% | −30% | 0.02 |
+| Government bonds | 6.9% | 3.7% | −4% | 0.12 |
+| US shares in rupees | 17.5% | 17.0% | −30% | 0.39 |
+
+| Mix, after costs (Jul 2017 on) | Return | Volatility | Worst fall |
+|---|---|---|---|
+| NIFTY only | 11.8% | 14.5% | −36% |
+| 60% NIFTY / 40% bonds | 9.8% | 8.9% | −22% |
+| 60% NIFTY / 20% bonds / 20% gold | 11.8% | 9.4% | −23% |
+| Equal, all four | 13.2% | 7.9% | −18% |
+| Risk parity, all four (57% bonds on average) | 9.6% | 4.8% | −12% |
+| Minimum variance, all four (84% bonds) | 7.0% | 3.4% | −6% |
+| Maximum Sharpe, all four | 8.1% | 10.0% | −18% |
+
+- **Diversification across asset classes worked where stock picking didn't:** 60/20/20 matched NIFTY's
+  return with two thirds of the volatility and a −23% worst fall instead of −36%; an equal mix of all four
+  did better on all three counts. Gold's weekly correlation with NIFTY was 0.02.
+- **Estimation error again:** maximum Sharpe, re-estimated each month from a year of data, had the worst
+  return per unit of risk of all the mixes; fixed proportions needed no estimates.
+- **One decade:** gold and US shares had a strong run here. The mixes' risk numbers rest on low
+  correlations, which held through this period; their returns depend on which asset had a good decade.
+
+<table><tr>
+<td><a href="docs/img/assets_correlation.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/assets_correlation.png"><img src="docs/img/assets_correlation.gif" alt="Correlation of weekly returns between NIFTY, gold, government bonds, US equity in rupees and USD/INR"></picture></a></td>
+<td><a href="docs/img/assets_rupee.png"><picture><source media="(prefers-reduced-motion: reduce)" srcset="docs/img/assets_rupee.png"><img src="docs/img/assets_rupee.gif" alt="S&P 500 with dividends in dollars and in rupees since 2016"></picture></a></td>
+</tr></table>
+
+- **The rupee as a cushion (right):** the dollar rose 3.1% a year against the rupee, turning the S&P 500's
+  13.9% into 17.5% for a rupee investor, and it tended to rise when NIFTY fell (correlation −0.32). From
+  19 February to 23 March 2020, NIFTY fell 35% and the S&P 500 34% in dollars, but 30% in rupees, as the
+  dollar gained 5.7%; gold fell 4.6% and bonds 0.5%.
+
 ## Quick start
 
 ```bash
 uv sync
 uv run python scripts/fetch_data.py         # Yahoo Finance -> data/prices.parquet
 uv run ef report frontier                   # charts -> out/
-EF_LAKE_DIR=/path/to/lake uv run ef report estimation   # also: covariance, contest, constraints, black-litterman; needs a local NSE bhavcopy lake
+EF_LAKE_DIR=/path/to/lake uv run ef report estimation   # also: covariance, contest, constraints, black-litterman, assets; needs a local NSE bhavcopy lake
 uv run python scripts/build_site.py         # dashboard -> site/index.html
 uv run pytest
 ```
@@ -233,6 +278,8 @@ uv run pytest
   list; `scripts/fetch_constituents.py` refreshes it). Returns on days Yahoo failed to adjust for a
   corporate action are set to zero (`docs/data/yahoo_fixes.csv`, with sources).
 - `src/ef/costs.py`: Indian equity-delivery costs (STT, stamp, exchange, SEBI, GST, DP charge, slippage).
+- `src/ef/assets.py`: rupee price series for NIFTY, gold, government bonds, US shares and cash
+  (Yahoo plus NSE's bond and overnight-rate indices from the lake; Yahoo's Dec 2019 bad prints removed).
 - `src/ef/black_litterman.py`: implied returns, the posterior, and a momentum view sized and weighted
   from the estimation window.
 - `src/ef/covariance.py`: sample, Ledoit-Wolf (constant-correlation target) and EWMA covariance.

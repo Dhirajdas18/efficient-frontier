@@ -139,6 +139,21 @@ def black_litterman_figure(_r) -> go.Figure:
                                        plots.MUTED, plots.TEXT])
 
 
+def assets_figure(_r) -> go.Figure:
+    """Return against risk of simple asset-class mixes (docs/data/asset_mixes.csv)."""
+    from ef.reports import ASSET_MIXES
+
+    m = pd.read_csv(ASSET_MIXES, index_col="mix")
+    fig = go.Figure()
+    fig.add_scatter(x=(m["vol"] * 100).round(1).tolist(), y=(m["cagr"] * 100).round(1).tolist(),
+                    mode="markers+text", text=list(m.index), textposition="top center",
+                    customdata=(m["dd"] * 100).round(0).tolist(),
+                    marker=dict(size=12, color=plots.SERIES[0]), name="mixes",
+                    hovertemplate="%{text}: %{y:.1f}% a year, %{x:.1f}% volatility, worst fall "
+                                  "%{customdata:.0f}%<extra></extra>")
+    return _scatter_layout(fig, "volatility, % a year", "return after costs, % a year")
+
+
 def shrinkage_figure(_r) -> go.Figure:
     """Ledoit-Wolf shrinkage intensity at each monthly rebalance (docs/data)."""
     from ef.reports import SHRINKAGE
@@ -194,6 +209,12 @@ SECTIONS = [
      "momentum stocks outright returned 8.5% a year after costs, the lowest here, with 31% "
      "turnover a month.",
      black_litterman_figure),
+    ("Asset classes",
+     "NIFTY, gold, government bonds and US shares in rupees, mixed in simple fixed proportions or "
+     "by an optimiser and rebalanced monthly after costs, July 2017 to November 2026. Gold and "
+     "bonds barely moved with NIFTY, so mixing them in cut volatility and the worst fall far more "
+     "than it cut return. Hover a point for its worst fall.",
+     assets_figure),
 ]
 
 
