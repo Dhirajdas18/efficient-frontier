@@ -133,4 +133,5 @@ def test_turnover_penalty_moves_less_from_the_previous_weights():
     np.testing.assert_allclose(min_variance_penalised(COV, prev, 0.0), free, atol=1e-5)
     moves = [np.abs(min_variance_penalised(COV, prev, lam) - prev).sum()
              for lam in (0.0, 0.002, 0.01, 1.0)]
-    assert moves == sorted(moves, reverse=True) and moves[-1] < 1e-6  # huge penalty: don't trade
+    assert all(b <= a + 1e-9 for a, b in zip(moves, moves[1:], strict=False))  # never more
+    assert moves[0] > 0.1 and moves[-1] < 1e-6  # no penalty trades; a huge one doesn't
