@@ -11,6 +11,7 @@ Yahoo printed NIFTYBEES and GOLDBEES at a tenth and a hundredth of their price o
 """
 
 import os
+import time
 from pathlib import Path
 
 import pandas as pd
@@ -24,13 +25,34 @@ LAKE_INDICES = {"Nifty Composite G-sec Index": "government bonds", "Nifty 1D Rat
 CLASSES = ["NIFTY 50", "gold", "government bonds", "US equity (INR)"]
 
 
-def fetch_yahoo(start: str = "2015-01-01") -> pd.DataFrame:
+def _download_yahoo(start: str) -> pd.DataFrame:
     import yfinance as yf
 
     raw = yf.download(list(TICKERS), start=start, auto_adjust=False, progress=False,
                       threads=False)["Adj Close"].rename(columns=TICKERS)
     raw.index = pd.DatetimeIndex(raw.index.tz_localize(None), name="date")
     return raw
+
+
+def missing_assets(px: pd.DataFrame) -> list[str]:
+    """Assets Yahoo left out or returned with no prices at all."""
+    return [n for n in TICKERS.values() if n not in px.columns or px[n].isna().all()]
+
+
+def fetch_yahoo(start: str = "2015-01-01", attempts: int = 4) -> pd.DataFrame:
+    """Download with retries (Yahoo sometimes drops a ticker); fail rather than return a gap."""
+    missing = ["everything"]
+    for attempt in range(attempts):
+        if attempt:
+            time.sleep(5 * attempt)
+        try:
+            px = _download_yahoo(start)
+        except Exception as exc:  # network or Yahoo error: retry
+            print(f"  download attempt {attempt + 1} failed: {exc}")
+            continue
+        if not (missing := missing_assets(px)):
+            return px
+    raise RuntimeError(f"Yahoo download failed for {missing}; not using an incomplete table")
 
 
 def drop_bad_prints(px: pd.DataFrame, bad: dict = BAD_PRINTS) -> pd.DataFrame:

@@ -22,3 +22,34 @@ def test_us_equity_is_converted_to_rupees():
     assert out["US equity (INR)"].pct_change().iloc[1] == pytest.approx(0.10)
     assert out["US equity (INR)"].pct_change().iloc[2] == pytest.approx(0.10)  # rupee fell 10%
     assert np.isfinite(out.to_numpy()).all()
+
+
+def test_missing_assets_names_absent_and_empty_columns():
+    import numpy as np
+    import pandas as pd
+
+    from ef.assets import TICKERS, missing_assets
+
+    names = list(TICKERS.values())
+    full = pd.DataFrame(1.0, index=range(3), columns=names)
+    assert missing_assets(full) == []
+    gap = full.drop(columns=names[0]).assign(**{names[1]: np.nan})
+    assert missing_assets(gap) == [names[0], names[1]]
+
+
+def test_fetch_yahoo_retries_until_complete(monkeypatch):
+    import pandas as pd
+
+    import ef.assets as a
+
+    names = list(a.TICKERS.values())
+    calls = []
+
+    def fake(start):
+        calls.append(start)
+        cols = names if len(calls) > 1 else names[1:]  # first try drops a ticker
+        return pd.DataFrame(1.0, index=pd.DatetimeIndex(["2024-01-01"]), columns=cols)
+
+    monkeypatch.setattr(a, "_download_yahoo", fake)
+    monkeypatch.setattr(a.time, "sleep", lambda s: None)
+    assert list(a.fetch_yahoo().columns) == names and len(calls) == 2
