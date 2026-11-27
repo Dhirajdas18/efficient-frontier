@@ -1,6 +1,6 @@
 """Indian equity-delivery trading costs (Zerodha), as fractions of the portfolio.
 
-Rates match the reference model's cost model (zerodha.com/charges, checked 2026-11): STT 0.1% on buys and
+Rates match the reference cost model (zerodha.com/charges, checked 2026-11): STT 0.1% on buys and
 sells, stamp duty 0.015% on buys, NSE transaction charge 0.00322%, SEBI ₹10 per crore, 18% GST on
 the exchange and SEBI charges (delivery brokerage is zero), a ₹15.93 depository (DP) charge per
 stock sold per day, and 0.05% slippage per side.

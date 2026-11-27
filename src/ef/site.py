@@ -197,7 +197,7 @@ SECTIONS = [
      "volatility in every year.",
      contest_figure),
     ("Constraints",
-     "The reference model's caps (15% per stock, 30% per sector) and a penalty on trading. Capping cut "
+     "Reference caps (15% per stock, 30% per sector) and a penalty on trading. Capping cut "
      "maximum Sharpe's volatility from 24% to 20%; minimum variance barely needed the caps. A "
      "turnover penalty cut minimum variance's trading by three quarters at the same risk, saving "
      "0.37% a year in costs.",
